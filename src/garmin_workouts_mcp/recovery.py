@@ -137,8 +137,11 @@ def register_tools(app):
         feature - distinct from activities and scheduled workouts).
 
         Scans one or more calendar months starting at start_year/start_month and returns
-        only the race/event entries (isRace=true), with title, date, location, distance,
-        and registration URL.
+        every entry from that feature (itemType=="event"), with title, date, location,
+        distance, and registration URL. Also includes Garmin's own "is_race" flag, which
+        is unreliable on its own - it is true for some registered races (e.g. road
+        marathons) but false for others that are just as real (e.g. a 100km hiking/trail
+        ultra), so it is reported as extra info rather than used to filter results.
 
         Args:
             start_year: Year to start scanning (e.g. 2026)
@@ -147,28 +150,34 @@ def register_tools(app):
         """
         try:
             months = max(1, min(months, 24))
-            events = []
+            events = {}
             year, month = start_year, start_month
             for _ in range(months):
                 url = f"calendar-service/year/{year}/month/{month - 1}"
                 response = garmin_client.garth.get("connectapi", url)
                 data = response.json()
                 for item in data.get("calendarItems", []):
-                    if item.get("isRace"):
+                    if item.get("itemType") == "event":
                         target = item.get("completionTarget") or {}
-                        events.append({
+                        # calendar-service month views overlap at the edges (a given
+                        # event can appear in two consecutive months' results), so
+                        # dedupe by Garmin's own event id.
+                        events[item.get("id")] = {
                             "title": item.get("title"),
                             "date": item.get("date"),
                             "start_time": (item.get("eventTimeLocal") or {}).get("startTimeHhMm"),
                             "location": item.get("location"),
                             "distance": target.get("value"),
                             "distance_unit": target.get("unit"),
+                            "is_race": item.get("isRace"),
                             "url": item.get("url"),
-                        })
+                        }
                 month += 1
                 if month > 12:
                     month = 1
                     year += 1
+
+            events = sorted(events.values(), key=lambda e: e.get("date") or "")
 
             if not events:
                 return f"No races/events found in the {months} month(s) starting {start_year}-{start_month:02d}."
