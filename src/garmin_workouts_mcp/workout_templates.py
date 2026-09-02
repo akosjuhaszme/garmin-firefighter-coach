@@ -238,7 +238,7 @@ WORKOUT_STRUCTURE_REFERENCE = {
     "strength_step_fields": {
         "category": "String, e.g. SQUAT/LUNGE/PUSH_UP/ROW/PLANK/CALF_RAISE. Optional field on a strength ExecutableStepDTO. Confirmed working - drives the exercise name shown in the Garmin app (e.g. SQUAT -> 'Guggolas').",
         "exerciseName": "String. Accepted alongside category but NOT confirmed to affect the displayed name - the app showed the generic category-derived name regardless. Possibly requires a specific enum value; treat as unreliable until confirmed.",
-        "weight": "weightValue (number, plain kg - e.g. 20.0 for 20kg, NOT grams) + weightUnit: {unitId: 8, unitKey: 'kilogram', factor: 1000.0}, both required together. Per unofficial reverse-engineered docs (github.com/n1t3k/garmin-strength-api); three earlier local guesses without the weightUnit object, or using the wrong key 'weightDisplayUnit', all failed silently (step stayed at bodyweight default) - the weightUnit object appears to be required for weightValue to be interpreted at all. Not yet independently confirmed via get_workouts round-trip on a live account (get_workout_by_id's curated view strips category/exerciseName/weight from its output even when present in the raw data, so that tool can't verify it - only the Garmin app UI or Connect web app network traffic can). If it turns out not to work, fall back to putting the target weight in the step 'description' as free text."
+        "weight": "CONFIRMED (live, via the Garmin app showing 'Suly: 20,0 kg' instead of the bodyweight default, on two separate steps/categories). weightValue (number, plain kg - e.g. 20.0 for 20kg, NOT grams) + weightUnit: {unitId: 8, unitKey: 'kilogram', factor: 1000.0}, both required together - omitting weightUnit, or using the wrong key 'weightDisplayUnit', silently leaves the step at bodyweight default. Source: github.com/n1t3k/garmin-strength-api. Note get_workout_by_id's curated view still strips category/exerciseName/weight from its output even though the fields ARE saved - the app UI is the only way to verify these, not this MCP server's own read tools."
     }
 }
 
@@ -278,11 +278,12 @@ def register_resources(app):
         """Strength training circuit template
 
         Circuit-style strength workout with repeat groups. Uses sportTypeId 5
-        (NOT 4 - that silently creates a swimming workout instead) and the
-        "reps" endCondition (id 10) plus the "category" field for exercise
-        naming (e.g. SQUAT) - see workout://reference/structure for details,
-        including the still-unsolved per-step weight field.
-        3 rounds of squat x12 + 30s rest.
+        (NOT 4 - that silently creates a swimming workout instead), the
+        "reps" endCondition (id 10), the "category" field for exercise
+        naming (e.g. SQUAT), and weightValue/weightUnit for a per-step
+        target weight in kg - see workout://reference/structure for the
+        confirmed field details.
+        3 rounds of squat x12 @ 20kg + 30s rest.
         """
         return json.dumps(STRENGTH_CIRCUIT_TEMPLATE, indent=2)
 
