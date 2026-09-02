@@ -1,10 +1,22 @@
-# Garmin Workouts MCP Server
+# Garmin Firefighter Coach
 
-The Garmin Workouts Model Context Protocol (MCP) server connects to Garmin Connect APIs and exposes your fitness and health data to AI agents that support the MCP standard. Users can use this server to access your Garmin activities, workouts, and workout templates from AI clients like Claude Desktop or VS Code Copilot, enabling users to query about their activity data, get insights and get AI generated workout plans.
+A fork of [brunosantos/garmin-workouts-mcp](https://github.com/brunosantos/garmin-workouts-mcp) that adds the read-only recovery/wellness and race-calendar tools the upstream project deliberately leaves out, so a single MCP server (single Garmin auth, single token file) can both **plan** training and **push structured workouts straight to a Garmin watch** — no phone taps needed mid-session.
 
-This project is in early development (v0.1) and currently supports read-only access to activities, workouts, and workout templates. 
+Built for a firefighter's functional-training and running-race prep: 5-6 running sessions + 1-2 cross-training sessions a week, periodized around real races pulled from the Garmin Connect calendar, and adjusted against real recovery data instead of a fixed template.
 
-The source code is a simplified and refactored version of the original Garmin MCP server available at [garmin_mcp](https://github.com/Taxuspt/garmin_mcp). The original mcp solution is still available and maintained, but this forked version is designed to reduce the data access surface area to the AI agent and focus on the core features for creating workout training plans rather than exposing all the data and features of the Garmin Connect API.
+## What's different here vs. other Garmin+Claude coach projects
+
+A survey of the existing Garmin+Claude/MCP ecosystem (Claude4Garmin, garmin-coach-mcp, claude-garmin, garmin-skill, claude-trail-running, claude-running-coach) showed a consistent split: projects either expose **broad read access** (activities, HRV, sleep, body battery, training status - sometimes 90+ tools) *or* they expose **workout write access** (upload/schedule structured workouts to the calendar), rarely both in one minimal-scope server. The trade-off is deliberate on the upstream project's side: least-privilege by design.
+
+This fork closes that gap without widening the attack surface or adding a second server/auth flow:
+
+- **`recovery.py`** (new) - training readiness, HRV status, Body Battery, sleep, stress, resting HR, training status, and race-time predictions. Read-only, same `garth` client and `~/.garminconnect` token as everything else - no extra login, no extra scopes beyond what `garminconnect` already grants.
+- **`get_calendar_events`** (new) - reads the Garmin Connect **Events** calendar (`calendar-service/year/{y}/month/{m}`), which is where manually-entered races live and which no other surveyed project exposes at all. This is what lets the coach periodize against real race dates/distances instead of a date typed into a prompt.
+- **Workout push stays intact** - `upload_workout(s)` / `schedule_workout(s)` from upstream, covering `running`, `strength_training`, and `cardio` sport types, so a functional-training/cross-training session is scheduled to the watch exactly like a running session.
+
+Net effect: one MCP server, one auth step, that can answer "am I recovered enough for the hard session today, what's on my race calendar, and here's this week's plan pushed to my watch" - the three things a human coach would actually check, in one place.
+
+The original repo's own history traces back to [garmin_mcp](https://github.com/Taxuspt/garmin_mcp) by Taxuspt; this fork keeps that lineage (MIT license, see `LICENSE`) and layers the above on top.
 
 Garmin's API is accessed via the [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) library and also the garth 
 

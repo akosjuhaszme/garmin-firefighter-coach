@@ -15,6 +15,7 @@ from garminconnect import Garmin, GarminConnectAuthenticationError
 from garmin_workouts_mcp import activity_management
 from garmin_workouts_mcp import workouts
 from garmin_workouts_mcp import workout_templates
+from garmin_workouts_mcp import recovery
 
 
 def is_interactive_terminal() -> bool:
@@ -197,6 +198,7 @@ def main():
     # Configure required modules with the Garmin client
     activity_management.configure(garmin_client)
     workouts.configure(garmin_client)
+    recovery.configure(garmin_client)
 
     # Create the MCP app
     app = FastMCP("Garmin Connect v1.0")
@@ -204,6 +206,7 @@ def main():
     # Register tools from required modules
     app = activity_management.register_tools(app)
     app = workouts.register_tools(app)
+    app = recovery.register_tools(app)
 
     # Register resources (workout templates)
     app = workout_templates.register_resources(app)
