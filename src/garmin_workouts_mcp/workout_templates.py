@@ -146,11 +146,11 @@ TEMPO_RUN_TEMPLATE = {
 
 STRENGTH_CIRCUIT_TEMPLATE = {
     "workoutName": "Strength Circuit",
-    "description": "Strength training circuit: warmup, 3x circuit (work + rest), cooldown",
-    "sportType": {"sportTypeId": 4, "sportTypeKey": "strength_training"},
+    "description": "Strength training circuit: warmup, 3x circuit (exercise + rest), cooldown",
+    "sportType": {"sportTypeId": 5, "sportTypeKey": "strength_training"},
     "workoutSegments": [{
         "segmentOrder": 1,
-        "sportType": {"sportTypeId": 4, "sportTypeKey": "strength_training"},
+        "sportType": {"sportTypeId": 5, "sportTypeKey": "strength_training"},
         "workoutSteps": [
             {
                 "type": "ExecutableStepDTO",
@@ -170,18 +170,22 @@ STRENGTH_CIRCUIT_TEMPLATE = {
                         "type": "ExecutableStepDTO",
                         "stepOrder": 1,
                         "stepType": {"stepTypeId": 3, "stepTypeKey": "interval"},
-                        "description": "Circuit work 10 min",
-                        "endCondition": {"conditionTypeId": 2, "conditionTypeKey": "time"},
-                        "endConditionValue": 600.0,
+                        "description": "Squat x12 @ 20kg",
+                        "category": "SQUAT",
+                        "exerciseName": "GOBLET_SQUAT",
+                        "weightValue": 20.0,
+                        "weightUnit": {"unitId": 8, "unitKey": "kilogram", "factor": 1000.0},
+                        "endCondition": {"conditionTypeId": 10, "conditionTypeKey": "reps"},
+                        "endConditionValue": 12,
                         "targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"}
                     },
                     {
                         "type": "ExecutableStepDTO",
                         "stepOrder": 2,
                         "stepType": {"stepTypeId": 4, "stepTypeKey": "recovery"},
-                        "description": "Rest 2 min",
+                        "description": "Rest 30 sec",
                         "endCondition": {"conditionTypeId": 2, "conditionTypeKey": "time"},
-                        "endConditionValue": 120.0,
+                        "endConditionValue": 30.0,
                         "targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"}
                     }
                 ]
@@ -216,7 +220,8 @@ WORKOUT_STRUCTURE_REFERENCE = {
     "endCondition_values": {
         "1": {"conditionTypeKey": "lap.button", "description": "Manual lap press"},
         "2": {"conditionTypeKey": "time", "description": "Duration in seconds"},
-        "3": {"conditionTypeKey": "distance", "description": "Distance in meters"}
+        "3": {"conditionTypeKey": "distance", "description": "Distance in meters"},
+        "10": {"conditionTypeKey": "reps", "description": "Rep count (use for strength ExecutableStepDTO steps: endConditionValue = number of reps). Not returned by get_workout_by_id's curated view, but confirmed working on upload - renders in the Garmin app as e.g. 'Cel: N ismetles'."}
     },
     "targetType_values": {
         "1": {"workoutTargetTypeKey": "no.target", "description": "No specific target"},
@@ -226,9 +231,14 @@ WORKOUT_STRUCTURE_REFERENCE = {
     "sportType_values": {
         "1": {"sportTypeKey": "running"},
         "2": {"sportTypeKey": "cycling"},
-        "4": {"sportTypeKey": "strength_training"},
-        "5": {"sportTypeKey": "cardio"},
+        "4": {"sportTypeKey": "swimming", "description": "NOT strength_training - using id 4 with sportTypeKey strength_training silently creates the workout as swimming. This is a SEPARATE enum from get_activity_types' activityType IDs; do not reuse those here (e.g. activityType 13 for strength_training produces sport 'rucking' as a workout sportType, also wrong)."},
+        "5": {"sportTypeKey": "strength_training", "description": "Confirmed by live upload + get_workouts round-trip on a real account. cardio's correct sportTypeId is not yet confirmed - do not assume 5 (that's strength_training) or 4 (that's swimming)."},
         "11": {"sportTypeKey": "walking"}
+    },
+    "strength_step_fields": {
+        "category": "String, e.g. SQUAT/LUNGE/PUSH_UP/ROW/PLANK/CALF_RAISE. Optional field on a strength ExecutableStepDTO. Confirmed working - drives the exercise name shown in the Garmin app (e.g. SQUAT -> 'Guggolas').",
+        "exerciseName": "String. Accepted alongside category but NOT confirmed to affect the displayed name - the app showed the generic category-derived name regardless. Possibly requires a specific enum value; treat as unreliable until confirmed.",
+        "weight": "weightValue (number, plain kg - e.g. 20.0 for 20kg, NOT grams) + weightUnit: {unitId: 8, unitKey: 'kilogram', factor: 1000.0}, both required together. Per unofficial reverse-engineered docs (github.com/n1t3k/garmin-strength-api); three earlier local guesses without the weightUnit object, or using the wrong key 'weightDisplayUnit', all failed silently (step stayed at bodyweight default) - the weightUnit object appears to be required for weightValue to be interpreted at all. Not yet independently confirmed via get_workouts round-trip on a live account (get_workout_by_id's curated view strips category/exerciseName/weight from its output even when present in the raw data, so that tool can't verify it - only the Garmin app UI or Connect web app network traffic can). If it turns out not to work, fall back to putting the target weight in the step 'description' as free text."
     }
 }
 
@@ -267,8 +277,12 @@ def register_resources(app):
     async def get_strength_template() -> str:
         """Strength training circuit template
 
-        Circuit-style strength workout with repeat groups.
-        3 rounds of 10min work + 2min rest.
+        Circuit-style strength workout with repeat groups. Uses sportTypeId 5
+        (NOT 4 - that silently creates a swimming workout instead) and the
+        "reps" endCondition (id 10) plus the "category" field for exercise
+        naming (e.g. SQUAT) - see workout://reference/structure for details,
+        including the still-unsolved per-step weight field.
+        3 rounds of squat x12 + 30s rest.
         """
         return json.dumps(STRENGTH_CIRCUIT_TEMPLATE, indent=2)
 
