@@ -3,9 +3,10 @@ Recovery / wellness read-only tools for Garmin Connect MCP Server
 
 Adds the metrics garmin-workouts-mcp deliberately left out (it scopes itself to
 activities + workouts): training readiness, HRV, body battery, sleep, stress,
-resting heart rate, training status and race predictions. Read-only, same
-garth/garminconnect client and token store as the rest of the server - no
-extra auth step.
+resting heart rate, training status, race predictions, calendar events, body
+weight, Endurance Score, Hill Score, floors climbed, intensity minutes,
+personal records, and hydration. Read-only, same garth/garminconnect client
+and token store as the rest of the server - no extra auth step.
 """
 import json
 
@@ -224,5 +225,90 @@ def register_tools(app):
             return json.dumps({"race_predictions": data}, indent=2, default=str)
         except Exception as e:
             return f"Error retrieving race predictions: {str(e)}"
+
+    @app.tool()
+    async def get_endurance_score(start_date: str, end_date: str = "") -> str:
+        """Get Garmin's Endurance Score (long-duration aerobic capacity trend) for a
+        date or date range - useful for tracking marathon-distance readiness over a
+        training block
+
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: Optional end date in YYYY-MM-DD format (defaults to start_date)
+        """
+        try:
+            data = garmin_client.get_endurance_score(start_date, end_date or None)
+            return _dump(data, f"{start_date}..{end_date or start_date}", "endurance_score")
+        except Exception as e:
+            return f"Error retrieving Endurance Score: {str(e)}"
+
+    @app.tool()
+    async def get_hill_score(start_date: str, end_date: str = "") -> str:
+        """Get Garmin's Hill Score (uphill running strength/power trend) for a date
+        or date range - relevant for vertical/stair-heavy events, not just road races
+
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: Optional end date in YYYY-MM-DD format (defaults to start_date)
+        """
+        try:
+            data = garmin_client.get_hill_score(start_date, end_date or None)
+            return _dump(data, f"{start_date}..{end_date or start_date}", "hill_score")
+        except Exception as e:
+            return f"Error retrieving Hill Score: {str(e)}"
+
+    @app.tool()
+    async def get_floors(cdate: str) -> str:
+        """Get floors climbed/descended for a date (from the watch's barometric
+        altimeter) - relevant for vertical/stair-climb event prep
+
+        Args:
+            cdate: Date in YYYY-MM-DD format
+        """
+        try:
+            data = garmin_client.get_floors(cdate)
+            return _dump(data, cdate, "floors")
+        except Exception as e:
+            return f"Error retrieving floors data: {str(e)}"
+
+    @app.tool()
+    async def get_intensity_minutes(cdate: str) -> str:
+        """Get moderate/vigorous intensity minutes for a date - a combined
+        cross-training-plus-running load signal, independent of any single sport
+
+        Args:
+            cdate: Date in YYYY-MM-DD format
+        """
+        try:
+            data = garmin_client.get_intensity_minutes_data(cdate)
+            return _dump(data, cdate, "intensity_minutes")
+        except Exception as e:
+            return f"Error retrieving intensity minutes: {str(e)}"
+
+    @app.tool()
+    async def get_personal_records() -> str:
+        """Get the user's personal record times/distances across all sports"""
+        try:
+            data = garmin_client.get_personal_record()
+            if not data:
+                return "No personal records found."
+            return json.dumps({"personal_records": data}, indent=2, default=str)
+        except Exception as e:
+            return f"Error retrieving personal records: {str(e)}"
+
+    @app.tool()
+    async def get_hydration(cdate: str) -> str:
+        """Get logged hydration intake for a date. Read-only - does not log
+        hydration (this server intentionally has no write tool for it; nutrition
+        tracking is out of scope for this fork).
+
+        Args:
+            cdate: Date in YYYY-MM-DD format
+        """
+        try:
+            data = garmin_client.get_hydration_data(cdate)
+            return _dump(data, cdate, "hydration")
+        except Exception as e:
+            return f"Error retrieving hydration data: {str(e)}"
 
     return app

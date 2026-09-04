@@ -10,7 +10,7 @@ A survey of the existing Garmin+Claude/MCP ecosystem (Claude4Garmin, garmin-coac
 
 This fork closes that gap without widening the attack surface or adding a second server/auth flow:
 
-- **`recovery.py`** (new) - training readiness, HRV status, Body Battery, sleep, stress, resting HR, training status, and race-time predictions. Read-only, same `garth` client and `~/.garminconnect` token as everything else - no extra login, no extra scopes beyond what `garminconnect` already grants.
+- **`recovery.py`** (new) - training readiness, HRV status, Body Battery, sleep, stress, resting HR, training status, race-time predictions, body weight, Endurance Score, Hill Score, floors climbed, intensity minutes, personal records, and hydration. Read-only, same `garth` client and `~/.garminconnect` token as everything else - no extra login, no extra scopes beyond what `garminconnect` already grants.
 - **`get_calendar_events`** (new) - reads the Garmin Connect **Events** calendar (`calendar-service/year/{y}/month/{m}`), which is where manually-entered races live and which no other surveyed project exposes at all. This is what lets the coach periodize against real race dates/distances instead of a date typed into a prompt.
 - **Workout push stays intact** - `upload_workout(s)` / `schedule_workout(s)` from upstream, covering `running`, `strength_training`, and `cardio` sport types, so a functional-training/cross-training session is scheduled to the watch exactly like a running session.
 
