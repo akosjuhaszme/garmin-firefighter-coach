@@ -13,10 +13,25 @@ This fork closes that gap without widening the attack surface or adding a second
 - **`recovery.py`** (new) - training readiness, HRV status, Body Battery, sleep, stress, resting HR, training status, race-time predictions, body weight, Endurance Score, Hill Score, floors climbed, intensity minutes, personal records, and hydration. Read-only, same `garth` client and `~/.garminconnect` token as everything else - no extra login, no extra scopes beyond what `garminconnect` already grants.
 - **`get_calendar_events`** (new) - reads the Garmin Connect **Events** calendar (`calendar-service/year/{y}/month/{m}`), which is where manually-entered races live and which no other surveyed project exposes at all. This is what lets the coach periodize against real race dates/distances instead of a date typed into a prompt.
 - **Workout push stays intact** - `upload_workout(s)` / `schedule_workout(s)` from upstream, covering `running`, `strength_training`, and `cardio` sport types, so a functional-training/cross-training session is scheduled to the watch exactly like a running session.
+- **`weather.py`** (new) - `get_weather_forecast`, a non-Garmin tool backed by OpenWeatherMap's free forecast API, flagging ICE_RISK / EXTREME_HEAT / POSSIBLE_STORM_HAIL for the days a week's outdoor sessions are about to be scheduled on. Requires an `OPENWEATHER_API_KEY` env var (see Setup below); everything else in this fork needs no keys beyond the Garmin token.
 
-Net effect: one MCP server, one auth step, that can answer "am I recovered enough for the hard session today, what's on my race calendar, and here's this week's plan pushed to my watch" - the three things a human coach would actually check, in one place.
+Net effect: one MCP server, one auth step, that can answer "am I recovered enough for the hard session today, what's on my race calendar, will the weather let me run it, and here's this week's plan pushed to my watch" - what a human coach would actually check, in one place.
 
 The original repo's own history traces back to [garmin_mcp](https://github.com/Taxuspt/garmin_mcp) by Taxuspt; this fork keeps that lineage (MIT license, see `LICENSE`) and layers the above on top.
+
+### Bug fixes found while using this fork against a real account
+
+- `get_activity_weather` was returning Fahrenheit/mph mislabeled as Celsius/m-per-s (Garmin's weather sub-API always replies in imperial units regardless of account preference). Confirmed via a January activity coming back as "32°C" - actually 32°F, i.e. 0°C. Now converted.
+- The workout reference resource had `strength_training` mapped to the wrong `sportTypeId` (4, which actually creates a **swimming** workout - confirmed via live upload + readback). Correct id is 5. Also documents the `reps` end-condition and the `category`/`weightValue`/`weightUnit` fields needed for a real strength-training step, none of which are in Garmin's own public docs (there isn't a public API for this at all - see [n1t3k/garmin-strength-api](https://github.com/n1t3k/garmin-strength-api)).
+- `get_calendar_events` was filtering on Garmin's `isRace` flag, which turns out to be inconsistently set (`true` for some registered road races, `false` for an equally-real 100km registered trail ultra on the same calendar). Now filters on the Events feature's own `itemType` instead.
+
+### Setup for the weather tool
+
+```
+$env:OPENWEATHER_API_KEY = "your-key-here"   # PowerShell, current session only
+```
+
+Get a free key at [openweathermap.org/api](https://openweathermap.org/api) (the 5-day/3-hour forecast endpoint this tool uses is on the free tier - no card required). For it to persist across restarts, add it to the `env` block of this server's entry in your MCP client config instead of setting it ad hoc each session.
 
 Garmin's API is accessed via the [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) library and also the garth 
 

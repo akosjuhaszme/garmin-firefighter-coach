@@ -16,6 +16,7 @@ from garmin_workouts_mcp import activity_management
 from garmin_workouts_mcp import workouts
 from garmin_workouts_mcp import workout_templates
 from garmin_workouts_mcp import recovery
+from garmin_workouts_mcp import weather
 
 
 def is_interactive_terminal() -> bool:
@@ -207,6 +208,7 @@ def main():
     app = activity_management.register_tools(app)
     app = workouts.register_tools(app)
     app = recovery.register_tools(app)
+    app = weather.register_tools(app)
 
     # Register resources (workout templates)
     app = workout_templates.register_resources(app)
