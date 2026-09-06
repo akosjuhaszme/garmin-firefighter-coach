@@ -5,6 +5,20 @@ Provides MCP resources with valid workout JSON structures that clients can
 read and use as templates for creating custom workouts via upload_workout.
 """
 import json
+from pathlib import Path
+
+# Full exercise_category -> [exerciseName, ...] catalog (33 categories, 1207
+# names), extracted from a "GARMIN CONNECT EXERCICES.xlsx" export of Garmin's
+# own exercise database. This is the authoritative source for the strength
+# ExecutableStepDTO "category"/"exerciseName" fields - see
+# workout://reference/exercise-catalog.
+_EXERCISE_CATALOG_PATH = Path(__file__).parent / "data" / "exercise_catalog.json"
+
+
+def _load_exercise_catalog() -> dict:
+    with open(_EXERCISE_CATALOG_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 
 # =============================================================================
 # WORKOUT TEMPLATES
@@ -236,16 +250,9 @@ WORKOUT_STRUCTURE_REFERENCE = {
         "11": {"sportTypeKey": "walking"}
     },
     "strength_step_fields": {
-        "category": "String, e.g. SQUAT/LUNGE/PUSH_UP/ROW/PLANK/CALF_RAISE. Optional field on a strength ExecutableStepDTO. Confirmed working - drives the exercise name shown in the Garmin app (e.g. SQUAT -> 'Guggolas'). Garmin's real category list has ~30+ values, not just the handful confirmed live so far - see known_category_exerciseName_pairs below for ones sourced from Garmin's own exercise catalog (via Terra's published Garmin exercise reference) rather than guessed.",
+        "category": "String - one of Garmin's 33 real exercise categories (BENCH_PRESS, CALF_RAISE, CARDIO, CARRY, CHOP, CORE, CRUNCH, CURL, DEADLIFT, FLYE, HIP_RAISE, HIP_STABILITY, HIP_SWING, HYPEREXTENSION, LATERAL_RAISE, LEG_CURL, LEG_RAISE, LUNGE, OLYMPIC_LIFT, PLANK, PLYO, PULL_UP, PUSH_UP, ROW, RUN, SHOULDER_PRESS, SHOULDER_STABILITY, SHRUG, SIT_UP, SQUAT, TOTAL_BODY, TRICEPS_EXTENSION, WARM_UP). Optional field on a strength ExecutableStepDTO. Confirmed working - drives the exercise name shown in the Garmin app (e.g. SQUAT -> 'Guggolas'). For the exact valid exerciseName values within each category (1207 total), read workout://reference/exercise-catalog rather than guessing - a plausible-sounding category/name that isn't in Garmin's real catalog fails silently, same failure mode as sportTypeId 4.",
         "exerciseName": "String. Accepted alongside category but NOT confirmed to affect the displayed name - the app showed the generic category-derived name regardless. Possibly requires a specific enum value; treat as unreliable until confirmed.",
-        "known_category_exerciseName_pairs": {
-            "_source": "Cross-confirmed by three independent sources: docs.tryterra.co/planned-workouts-api/garmin-exercise-reference, github.com/mrnabilnoh/workout-plan-garmin-connect (built directly from a workouts.json pulled from Garmin Connect itself), and a 2018 Garmin forum exercise-name dump (pastebin.com/q9ctpKgy, 1228 names). All agree on category=HIP_STABILITY / exerciseName=QUADRUPED_WITH_LEG_LIFT for bird dog, with no literal 'BIRD_DOG' entry anywhere. Not yet live-verified via upload+app-screenshot the way category=SQUAT/weight were, but three independently-sourced agreeing references is stronger footing than the SQUAT-only case had before it was live-confirmed. If a common exercise name doesn't match Garmin's category directly, it's usually filed under a less obvious category - check here before assuming it doesn't exist. To verify any category/exerciseName pair yourself while logged into Garmin Connect, visit connect.garmin.com/modern/exercises/{CATEGORY}/{EXERCISE_NAME} - real pairs resolve to a real exercise page (structure confirmed via a community Google Sheet exercise database, though it requires Garmin login to actually view).",
-            "bird_dog": "NOT its own category. Use category='HIP_STABILITY', exerciseName='QUADRUPED_WITH_LEG_LIFT' (or 'QUADRUPED_HIP_EXTENSION' for the arm-less variant). This is the fix for the case that prompted this lookup - a 'BIRD_DOG' category does not exist and would silently fail the same way sportTypeId 4 silently became swimming.",
-            "dead_bug": "category='HIP_STABILITY', exerciseName='DEAD_BUG' (or 'WEIGHTED_DEAD_BUG')",
-            "other_HIP_STABILITY_names": ["QUADRUPED", "QUADRUPED_HIP_EXTENSION", "QUADRUPED_WITH_LEG_LIFT", "QUADRUPED_LEG_RAISE", "QUADRUPED_ROCKING", "WEIGHTED_QUADRUPED_HIP_EXTENSION", "WEIGHTED_QUADRUPED_LEG_RAISE", "WEIGHTED_QUADRUPED_WITH_LEG_LIFT", "DEAD_BUG", "WEIGHTED_DEAD_BUG", "EXTERNAL_HIP_RAISE"],
-            "other_HYPEREXTENSION_names": ["BACK_EXTENSION_WITH_OPPOSITE_ARM_AND_LEG_REACH", "WEIGHTED_BACK_EXTENSION_WITH_OPPOSITE_ARM_AND_LEG_REACH", "SWISS_BALL_OPPOSITE_ARM_AND_LEG_LIFT", "WEIGHTED_SWISS_BALL_OPPOSITE_ARM_AND_LEG_LIFT"],
-            "other_CORE_names": ["ARM_AND_LEG_EXTENSION_ON_KNEES", "WEIGHTED_SWISS_BALL_OPPOSITE_ARM_AND_LEG_LIFT"]
-        },
+        "bird_dog_example": "Worked example of the 'looks obvious but isn't' trap this catalog exists for: 'bird dog' has NO literal BIRD_DOG entry anywhere in Garmin's catalog. The real pairing is category='HIP_STABILITY', exerciseName='QUADRUPED_WITH_LEG_LIFT' (or 'QUADRUPED_HIP_EXTENSION' for the arm-less variant) - confirmed directly from Garmin's own exercise database export (see workout://reference/exercise-catalog's source note), not a third-party guess. Two superficially similar names sit in DIFFERENT categories despite both being 'quadruped' exercises: QUADRUPED_LEG_RAISE is under LEG_RAISE, and QUADRUPED_ROCKING is under WARM_UP - don't assume same-sounding names share a category.",
         "weight": "CONFIRMED (live, via the Garmin app showing 'Suly: 20,0 kg' instead of the bodyweight default, on two separate steps/categories). weightValue (number, plain kg - e.g. 20.0 for 20kg, NOT grams) + weightUnit: {unitId: 8, unitKey: 'kilogram', factor: 1000.0}, both required together - omitting weightUnit, or using the wrong key 'weightDisplayUnit', silently leaves the step at bodyweight default. Source: github.com/n1t3k/garmin-strength-api. Note get_workout_by_id's curated view still strips category/exerciseName/weight from its output even though the fields ARE saved - the app UI is the only way to verify these, not this MCP server's own read tools."
     },
     "coaching_platform_conventions": {
@@ -309,5 +316,26 @@ def register_resources(app):
         Use this to understand what values are valid in workout definitions.
         """
         return json.dumps(WORKOUT_STRUCTURE_REFERENCE, indent=2)
+
+    @app.resource("workout://reference/exercise-catalog")
+    async def get_exercise_catalog() -> str:
+        """Full Garmin exercise category/name catalog (33 categories, 1207 names)
+
+        The authoritative source for the strength ExecutableStepDTO "category"
+        and "exerciseName" fields - extracted directly from Garmin's own
+        exercise database (a "GARMIN CONNECT EXERCICES.xlsx" export), not a
+        third-party guess. Structure: {"CATEGORY": ["EXERCISE_NAME", ...], ...}.
+
+        Use this before assuming a common exercise name (e.g. "bird dog",
+        which is actually category=HIP_STABILITY, exerciseName=
+        QUADRUPED_WITH_LEG_LIFT - Garmin has no literal BIRD_DOG entry)
+        doesn't exist - it's usually filed under a less obvious category.
+        """
+        catalog = _load_exercise_catalog()
+        return json.dumps({
+            "category_count": len(catalog),
+            "exercise_count": sum(len(v) for v in catalog.values()),
+            "catalog": catalog,
+        }, indent=2)
 
     return app
