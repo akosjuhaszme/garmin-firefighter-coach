@@ -287,13 +287,23 @@ def register_tools(app):
             if not weather:
                 return f"No weather data found for activity with ID {activity_id}"
 
+            # This Garmin endpoint always returns imperial units (F, mph) regardless
+            # of the account's unit preference - confirmed empirically: a Jan 1st
+            # morning run came back with temp=32 (i.e. 32F/0C, not 32C, which would
+            # be a Hungarian winter heatwave). Convert to metric here.
+            def _f_to_c(f):
+                return round((f - 32) * 5 / 9, 1) if f is not None else None
+
+            def _mph_to_mps(mph):
+                return round(mph * 0.44704, 1) if mph is not None else None
+
             # Curate weather data
             curated = {
                 "activity_id": activity_id,
-                "temperature_celsius": weather.get('temp'),
-                "apparent_temperature_celsius": weather.get('apparentTemp'),
+                "temperature_celsius": _f_to_c(weather.get('temp')),
+                "apparent_temperature_celsius": _f_to_c(weather.get('apparentTemp')),
                 "humidity_percent": weather.get('relativeHumidity'),
-                "wind_speed_mps": weather.get('windSpeed'),
+                "wind_speed_mps": _mph_to_mps(weather.get('windSpeed')),
                 "wind_direction_degrees": weather.get('windDirection'),
                 "weather_type": weather.get('weatherTypeDTO', {}).get('weatherTypeName'),
                 "weather_description": weather.get('weatherTypeDTO', {}).get('weatherTypeDesc'),
