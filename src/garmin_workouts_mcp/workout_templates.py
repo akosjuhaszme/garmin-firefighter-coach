@@ -236,8 +236,16 @@ WORKOUT_STRUCTURE_REFERENCE = {
         "11": {"sportTypeKey": "walking"}
     },
     "strength_step_fields": {
-        "category": "String, e.g. SQUAT/LUNGE/PUSH_UP/ROW/PLANK/CALF_RAISE. Optional field on a strength ExecutableStepDTO. Confirmed working - drives the exercise name shown in the Garmin app (e.g. SQUAT -> 'Guggolas').",
+        "category": "String, e.g. SQUAT/LUNGE/PUSH_UP/ROW/PLANK/CALF_RAISE. Optional field on a strength ExecutableStepDTO. Confirmed working - drives the exercise name shown in the Garmin app (e.g. SQUAT -> 'Guggolas'). Garmin's real category list has ~30+ values, not just the handful confirmed live so far - see known_category_exerciseName_pairs below for ones sourced from Garmin's own exercise catalog (via Terra's published Garmin exercise reference) rather than guessed.",
         "exerciseName": "String. Accepted alongside category but NOT confirmed to affect the displayed name - the app showed the generic category-derived name regardless. Possibly requires a specific enum value; treat as unreliable until confirmed.",
+        "known_category_exerciseName_pairs": {
+            "_source": "docs.tryterra.co/planned-workouts-api/garmin-exercise-reference (Terra's published reference for Garmin's own exercise catalog) - not yet independently live-verified the way category=SQUAT/weight were, but same authoritative source as the FIT SDK catalog these values come from. If a common exercise name doesn't match Garmin's category directly, it's usually filed under a less obvious category - check here before assuming it doesn't exist.",
+            "bird_dog": "NOT its own category. Use category='HIP_STABILITY', exerciseName='QUADRUPED_WITH_LEG_LIFT' (or 'QUADRUPED_HIP_EXTENSION' for the arm-less variant). This is the fix for the case that prompted this lookup - a 'BIRD_DOG' category does not exist and would silently fail the same way sportTypeId 4 silently became swimming.",
+            "dead_bug": "category='HIP_STABILITY', exerciseName='DEAD_BUG' (or 'WEIGHTED_DEAD_BUG')",
+            "other_HIP_STABILITY_names": ["QUADRUPED", "QUADRUPED_HIP_EXTENSION", "QUADRUPED_WITH_LEG_LIFT", "WEIGHTED_QUADRUPED_HIP_EXTENSION", "WEIGHTED_QUADRUPED_WITH_LEG_LIFT", "DEAD_BUG", "WEIGHTED_DEAD_BUG"],
+            "other_HYPEREXTENSION_names": ["BACK_EXTENSION_WITH_OPPOSITE_ARM_AND_LEG_REACH", "WEIGHTED_BACK_EXTENSION_WITH_OPPOSITE_ARM_AND_LEG_REACH", "SWISS_BALL_OPPOSITE_ARM_AND_LEG_LIFT", "WEIGHTED_SWISS_BALL_OPPOSITE_ARM_AND_LEG_LIFT"],
+            "other_CORE_names": ["ARM_AND_LEG_EXTENSION_ON_KNEES", "WEIGHTED_SWISS_BALL_OPPOSITE_ARM_AND_LEG_LIFT"]
+        },
         "weight": "CONFIRMED (live, via the Garmin app showing 'Suly: 20,0 kg' instead of the bodyweight default, on two separate steps/categories). weightValue (number, plain kg - e.g. 20.0 for 20kg, NOT grams) + weightUnit: {unitId: 8, unitKey: 'kilogram', factor: 1000.0}, both required together - omitting weightUnit, or using the wrong key 'weightDisplayUnit', silently leaves the step at bodyweight default. Source: github.com/n1t3k/garmin-strength-api. Note get_workout_by_id's curated view still strips category/exerciseName/weight from its output even though the fields ARE saved - the app UI is the only way to verify these, not this MCP server's own read tools."
     },
     "coaching_platform_conventions": {
