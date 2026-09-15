@@ -5,8 +5,9 @@ Adds the metrics garmin-workouts-mcp deliberately left out (it scopes itself to
 activities + workouts): training readiness, HRV, body battery, sleep, stress,
 resting heart rate, training status, race predictions, calendar events, body
 weight, Endurance Score, Hill Score, floors climbed, intensity minutes,
-personal records, and hydration. Read-only, same garth/garminconnect client
-and token store as the rest of the server - no extra auth step.
+personal records, hydration, and gear (shoe/bike mileage tracking). Read-only,
+same garth/garminconnect client and token store as the rest of the server -
+no extra auth step.
 """
 import json
 
@@ -310,5 +311,62 @@ def register_tools(app):
             return _dump(data, cdate, "hydration")
         except Exception as e:
             return f"Error retrieving hydration data: {str(e)}"
+
+    @app.tool()
+    async def get_gear() -> str:
+        """Get all registered gear (shoes, bikes, etc.) with mileage and
+        retirement-threshold tracking
+
+        For each active gear item, reports total distance logged, the
+        configured maximum distance (if the user set a retirement threshold
+        in Garmin Connect), percent used, and remaining distance - useful for
+        shoe-rotation decisions and flagging when a shoe is approaching the
+        end of its useful life (a common injury-prevention signal in
+        distance-running training). Read-only; does not create/retire gear
+        or change default-gear assignments.
+        """
+        try:
+            profile_id = garmin_client.get_user_profile().get("id")
+            if not profile_id:
+                return "Could not determine user profile ID to list gear."
+
+            gear_list = garmin_client.get_gear(str(profile_id))
+            if not gear_list:
+                return "No gear registered in Garmin Connect."
+
+            items = []
+            for gear in gear_list:
+                uuid = gear.get("uuid")
+                stats = {}
+                if uuid:
+                    try:
+                        stats = garmin_client.get_gear_stats(uuid) or {}
+                    except Exception:
+                        stats = {}
+
+                total_m = stats.get("totalDistance")
+                max_m = gear.get("maximumMeters")
+                entry = {
+                    "name": gear.get("displayName") or gear.get("customMakeModel"),
+                    "make_model": gear.get("customMakeModel"),
+                    "type": gear.get("gearTypeName"),
+                    "status": gear.get("gearStatusName"),
+                    "first_used": gear.get("dateBegin"),
+                    "retired_date": gear.get("dateEnd"),
+                    "total_distance_km": round(total_m / 1000, 1) if total_m is not None else None,
+                    "total_activities": stats.get("totalActivities"),
+                }
+                if max_m:
+                    max_km = max_m / 1000
+                    entry["max_distance_km"] = round(max_km, 1)
+                    if total_m is not None:
+                        entry["percent_used"] = round(min(total_m / max_m, 1.0) * 100, 1)
+                        entry["remaining_km"] = round(max(max_km - total_m / 1000, 0.0), 1)
+
+                items.append({k: v for k, v in entry.items() if v is not None})
+
+            return json.dumps({"count": len(items), "gear": items}, indent=2, default=str)
+        except Exception as e:
+            return f"Error retrieving gear: {str(e)}"
 
     return app
