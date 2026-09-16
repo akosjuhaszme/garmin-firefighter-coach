@@ -4,6 +4,8 @@ A fork of [brunosantos/garmin-workouts-mcp](https://github.com/brunosantos/garmi
 
 Built for a firefighter's functional-training and running-race prep: 5-6 running sessions + 1-2 cross-training sessions a week, periodized around real races pulled from the Garmin Connect calendar, and adjusted against real recovery data instead of a fixed template.
 
+This repo documents the *server* (mechanics, API quirks, bug fixes) - it's public and account-agnostic on purpose. Person-specific coaching context (injury history, race results, equipment, HR zones) for the account this was built for lives in a private companion repo instead, kept out of public view; ask the account owner for access if you need it.
+
 ## What's different here vs. other Garmin+Claude coach projects
 
 A survey of the existing Garmin+Claude/MCP ecosystem (Claude4Garmin, garmin-coach-mcp, claude-garmin, garmin-skill, claude-trail-running, claude-running-coach) showed a consistent split: projects either expose **broad read access** (activities, HRV, sleep, body battery, training status - sometimes 90+ tools) *or* they expose **workout write access** (upload/schedule structured workouts to the calendar), rarely both in one minimal-scope server. The trade-off is deliberate on the upstream project's side: least-privilege by design.
