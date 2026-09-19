@@ -28,6 +28,7 @@ import os
 import requests
 
 DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/foot-walking/geojson"
+GEOCODE_URL = "https://api.openrouteservice.org/geocode/search"
 
 # How many seeds to try (when the caller doesn't pin one) before returning the
 # closest match. ~15 calls took ~3s in testing - cheap against the free tier's
@@ -60,6 +61,49 @@ def _google_maps_link(coordinates: list) -> str:
         sample = coordinates[::step][:9] + [coordinates[-1]]
     points = "/".join(f"{lat},{lon}" for lon, lat in sample)
     return f"https://www.google.com/maps/dir/{points}"
+
+
+def _geocode(api_key, address):
+    """Resolve a free-text address to (lat, lon, label, confidence) using the
+    same OpenRouteService API key (Pelias-backed geocoder - same account,
+    no separate signup). Returns (result_dict_or_None, error_message_or_None).
+
+    Confidence is Pelias's own 0-1 match-quality score; a low score or a
+    coarse match_type (e.g. "fallback") usually means it only resolved to a
+    town/locality centroid, not the exact street - common for addresses in
+    small towns/villages where street-level data is sparse. Callers should
+    surface confidence/match_type to the user rather than silently trusting
+    a coarse match as if it were the exact address.
+    """
+    try:
+        response = requests.get(
+            GEOCODE_URL,
+            params={"api_key": api_key, "text": address, "size": 1},
+            timeout=10,
+        )
+    except requests.exceptions.RequestException as e:
+        return None, f"Error contacting OpenRouteService geocoder: {str(e)}"
+
+    if response.status_code in (401, 403):
+        return None, "OpenRouteService rejected the API key - check OPENROUTESERVICE_API_KEY."
+    if response.status_code != 200:
+        return None, f"OpenRouteService geocoder request failed: HTTP {response.status_code} - {response.text[:300]}"
+
+    features = response.json().get("features") or []
+    if not features:
+        return None, f"No location found for address: {address!r}"
+
+    feature = features[0]
+    lon, lat = feature["geometry"]["coordinates"]
+    props = feature.get("properties", {})
+    return {
+        "lat": lat,
+        "lon": lon,
+        "label": props.get("label"),
+        "confidence": props.get("confidence"),
+        "match_type": props.get("match_type"),
+        "layer": props.get("layer"),
+    }, None
 
 
 def _request_route(api_key, start_lat, start_lon, distance_km, points, seed):
@@ -108,10 +152,41 @@ def register_tools(app):
     """Register route-generation tools with the MCP server app"""
 
     @app.tool()
+    async def geocode_address(address: str) -> str:
+        """Resolve a free-text address/place name to coordinates, for use
+        with generate_running_route's start_lat/start_lon
+
+        Uses OpenRouteService's geocoder (same API key/account as the route
+        tool - no separate signup). Always check `confidence` and
+        `match_type` in the result: a low confidence or match_type
+        "fallback" usually means the address only resolved to a town/village
+        centroid, not the exact street - common for small-town addresses
+        where street-level data is sparse. Don't silently treat a coarse
+        match as if it were the exact requested address; surface it to the
+        user instead.
+
+        Args:
+            address: Free-text address or place name, e.g. "Fő utca 12, Isaszeg, Hungary"
+        """
+        api_key = os.environ.get("OPENROUTESERVICE_API_KEY")
+        if not api_key:
+            return (
+                "No OpenRouteService API key configured. Set the "
+                "OPENROUTESERVICE_API_KEY environment variable (get a free key "
+                "at https://openrouteservice.org/dev/#/signup) and restart this "
+                "MCP server."
+            )
+        result, error = _geocode(api_key, address)
+        if error:
+            return error
+        return json.dumps(result, indent=2)
+
+    @app.tool()
     async def generate_running_route(
-        start_lat: float,
-        start_lon: float,
         distance_km: float,
+        start_lat: float = 0.0,
+        start_lon: float = 0.0,
+        start_address: str = "",
         points: int = 3,
         seed: int = 0,
     ) -> str:
@@ -136,9 +211,15 @@ def register_tools(app):
         Courses -> Import) and a Google Maps link as a quick preview.
 
         Args:
-            start_lat: Starting point latitude
-            start_lon: Starting point longitude
             distance_km: Target route distance in kilometers
+            start_lat: Starting point latitude - provide this + start_lon, OR start_address, not both
+            start_lon: Starting point longitude
+            start_address: Free-text starting address/place name - resolved via the same
+                geocoder as geocode_address(); if given, start_lat/start_lon are ignored.
+                The response includes which resolved address/coordinates were actually
+                used, and its geocoding confidence - check it before trusting the route,
+                since a low-confidence match may only be a town centroid, not the exact
+                street asked for.
             points: Number of waypoints shaping the loop - lower values
                 stayed closer to the target distance in testing (default 3,
                 the minimum OpenRouteService allows)
@@ -154,6 +235,16 @@ def register_tools(app):
                 "at https://openrouteservice.org/dev/#/signup) and restart this "
                 "MCP server."
             )
+
+        geocode_info = None
+        if start_address:
+            geocoded, error = _geocode(api_key, start_address)
+            if error:
+                return error
+            start_lat, start_lon = geocoded["lat"], geocoded["lon"]
+            geocode_info = geocoded
+        elif not (start_lat or start_lon):
+            return "Provide either start_lat+start_lon or start_address."
 
         if seed:
             result, error = _request_route(api_key, start_lat, start_lon, distance_km, points, seed)
@@ -185,7 +276,9 @@ def register_tools(app):
 
         route_name = f"Generated route {distance_km}km from ({start_lat},{start_lon})"
 
-        return json.dumps({
+        response = {
+            "start_lat": start_lat,
+            "start_lon": start_lon,
             "requested_distance_km": distance_km,
             "actual_distance_km": result["actual_km"],
             "deviation_km": round(abs(result["actual_km"] - distance_km), 2),
@@ -195,6 +288,13 @@ def register_tools(app):
             "waypoint_count": len(result["coords"]),
             "google_maps_preview": _google_maps_link(result["coords"]),
             "gpx": _build_gpx(result["coords"], route_name),
-        }, indent=2)
+        }
+        if geocode_info is not None:
+            response["geocoded_from_address"] = start_address
+            response["geocoded_label"] = geocode_info["label"]
+            response["geocode_confidence"] = geocode_info["confidence"]
+            response["geocode_match_type"] = geocode_info["match_type"]
+
+        return json.dumps(response, indent=2)
 
     return app
