@@ -1,17 +1,23 @@
 """
-Running route generation for Garmin MCP Server
+Running route generation + Garmin Course upload for Garmin MCP Server
 
-Not a Garmin API - Garmin has no public route/course-generation endpoint at
-all (the official "Courses API" is business/institution-gated). Uses
-OpenRouteService's free "round trip" directions feature instead: given a
-start point and a target distance, it generates a loop route on real streets
-and paths. Requires OPENROUTESERVICE_API_KEY as an environment variable.
+Route generation is not a Garmin API - Garmin has no public route-generation
+endpoint at all (the official "Courses API" is business/institution-gated).
+Uses OpenRouteService's free "round trip" directions feature instead: given
+a start point and a target distance, it generates a loop route on real
+streets and paths. Requires OPENROUTESERVICE_API_KEY as an environment
+variable.
 
-This only generates the route (coordinates + a shareable link + a GPX
-string). Getting it onto the watch as a navigable Garmin "Course" is a
-separate, still-unsolved problem - python-garminconnect has no course
-upload support and Garmin's course-service endpoints are undocumented.
-Until that's solved, hand the GPX/link to the user to import manually.
+Getting a generated route onto the watch as a navigable Garmin "Course" IS
+now supported (create_garmin_course) - python-garminconnect has no course
+support at all, so this reverse-engineers Garmin's undocumented
+course-service endpoints instead, based on the (independently-maintained,
+TypeScript) garmin-connect npm package's implementation
+(github.com/florianpasteur/garmin-connect), then live-verified end to end
+against a real account: created a real course (HTTP 200, real courseId
+assigned, real distance/elevation computed by Garmin) and deleted it again
+(HTTP 204) with no leftover residue. Same garth/garminconnect client and
+~/.garminconnect token as the rest of this server - no extra auth step.
 
 Known quirk, confirmed by live testing against a real account: OpenRouteService's
 own docs call "length" a "preferred value", and in practice it's a weak
@@ -23,12 +29,44 @@ FIXED seed, changing "length" often changed nothing at all (4.32km, 4.5km and
 be trusted to hit a target - see the seed-search loop below.
 """
 import json
+import math
 import os
+import re
 
 import requests
 
 DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/foot-walking/geojson"
 GEOCODE_URL = "https://api.openrouteservice.org/geocode/search"
+
+# GpxActivityType enum values, per garmin-connect (TS) src/garmin/types/gpx.ts -
+# confirmed working live for RUNNING.
+_ACTIVITY_TYPE_IDS = {"running": 1, "cycling": 10, "hiking": 3, "other": 4}
+
+# The garmin_client will be set by the main file
+garmin_client = None
+
+
+def configure(client):
+    """Configure the module with the Garmin client instance"""
+    global garmin_client
+    garmin_client = client
+
+
+def _haversine_m(lon1, lat1, lon2, lat2):
+    R = 6371000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def _parse_gpx_trkpts(gpx: str) -> list:
+    """Extract [lon, lat] pairs from a GPX string's <trkpt lat=".." lon=".."> tags
+    (the format this module's own _build_gpx produces, and typical of any
+    standard GPX 1.1 track)."""
+    matches = re.findall(r'<trkpt\s+lat="([\-\d.]+)"\s+lon="([\-\d.]+)"', gpx)
+    return [[float(lon), float(lat)] for lat, lon in matches]
 
 # How many seeds to try (when the caller doesn't pin one) before returning the
 # closest match. ~15 calls took ~3s in testing - cheap against the free tier's
@@ -339,5 +377,125 @@ def register_tools(app):
             response["geocode_match_type"] = geocode_info["match_type"]
 
         return json.dumps(response, indent=2)
+
+    @app.tool()
+    async def create_garmin_course(
+        gpx: str,
+        course_name: str,
+        activity_type: str = "running",
+        private: bool = True,
+    ) -> str:
+        """Upload a GPX route (e.g. from generate_running_route) to Garmin
+        Connect as a navigable "Course" - syncs to the watch like any other
+        course, so it can actually be followed turn-by-turn on a run
+
+        Reverse-engineered from Garmin's undocumented course-service API (see
+        module docstring for the source and live-verification details) -
+        there is no public/official API for this. Uses the same account
+        auth as the rest of this server, no extra login.
+
+        Args:
+            gpx: A GPX string containing <trkpt lat=".." lon=".."> points,
+                e.g. the "gpx" field from generate_running_route's response
+            course_name: Name shown for the course in Garmin Connect/on the watch
+            activity_type: One of "running", "cycling", "hiking", "other" (default "running")
+            private: Keep the course private to this account (default True) -
+                set False to make it publicly visible/searchable on Garmin Connect
+        """
+        if garmin_client is None:
+            return "Garmin client not configured."
+
+        activity_type_id = _ACTIVITY_TYPE_IDS.get(activity_type.lower())
+        if activity_type_id is None:
+            return f"Unknown activity_type {activity_type!r} - use one of {list(_ACTIVITY_TYPE_IDS)}."
+
+        coords = _parse_gpx_trkpts(gpx)
+        if len(coords) < 2:
+            return "GPX contained fewer than 2 track points - nothing to upload."
+
+        geo_points = []
+        cum_dist = 0.0
+        for i, (lon, lat) in enumerate(coords):
+            if i > 0:
+                prev_lon, prev_lat = coords[i - 1]
+                cum_dist += _haversine_m(prev_lon, prev_lat, lon, lat)
+            geo_points.append({
+                "latitude": lat,
+                "longitude": lon,
+                "elevation": None,
+                "distance": round(cum_dist, 2),
+                "timestamp": None,
+            })
+
+        course_request = {
+            "activityTypePk": activity_type_id,
+            "hasTurnDetectionDisabled": False,
+            "geoPoints": geo_points,
+            "courseLines": [],
+            "coursePoints": [],
+            "startPoint": geo_points[0],
+            "elapsedSeconds": None,
+            "openStreetMap": False,
+            "coordinateSystem": "WGS84",
+            "rulePK": 2 if private else 1,
+            "courseName": course_name,
+            "matchedToSegments": False,
+            "includeLaps": False,
+            "hasPaceBand": False,
+            "hasPowerGuide": False,
+            "favorite": False,
+            "speedMeterPerSecond": None,
+            "sourceTypeId": 3,
+        }
+
+        try:
+            response = garmin_client.garth.post(
+                "connectapi", "course-service/course", json=course_request
+            )
+        except Exception as e:
+            return f"Error creating course: {str(e)}"
+
+        if response.status_code != 200:
+            return f"Course creation failed: HTTP {response.status_code} - {response.text[:300]}"
+
+        created = response.json()
+        return json.dumps({
+            "status": "success",
+            "course_id": created.get("courseId"),
+            "course_name": created.get("courseName"),
+            "distance_meters": created.get("distanceMeter"),
+            "elevation_gain_meters": created.get("elevationGainMeter"),
+            "private": private,
+        }, indent=2)
+
+    @app.tool()
+    async def list_garmin_courses() -> str:
+        """List all Garmin Connect courses on this account (id, name, distance,
+        activity type) - read-only"""
+        if garmin_client is None:
+            return "Garmin client not configured."
+        try:
+            response = garmin_client.garth.get("connectapi", "web-gateway/course/owner/")
+        except Exception as e:
+            return f"Error listing courses: {str(e)}"
+        if response.status_code != 200:
+            return f"Listing courses failed: HTTP {response.status_code} - {response.text[:300]}"
+        return json.dumps(response.json(), indent=2, default=str)
+
+    @app.tool()
+    async def delete_garmin_course(course_id: int) -> str:
+        """Permanently delete a Garmin Connect course by id (from
+        create_garmin_course's response or list_garmin_courses)"""
+        if garmin_client is None:
+            return "Garmin client not configured."
+        try:
+            response = garmin_client.garth.delete(
+                "connectapi", f"course-service/course/{course_id}", api=True
+            )
+        except Exception as e:
+            return f"Error deleting course: {str(e)}"
+        if response.status_code in (200, 204):
+            return json.dumps({"status": "success", "course_id": course_id}, indent=2)
+        return f"Delete failed: HTTP {response.status_code} - {response.text[:300]}"
 
     return app
