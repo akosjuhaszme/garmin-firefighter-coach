@@ -17,6 +17,7 @@ This fork closes that gap without widening the attack surface or adding a second
 - **Workout push stays intact** - `upload_workout(s)` / `schedule_workout(s)` from upstream, covering `running`, `strength_training`, and `cardio` sport types, so a functional-training/cross-training session is scheduled to the watch exactly like a running session.
 - **`weather.py`** (new) - `get_weather_forecast`, a non-Garmin tool backed by OpenWeatherMap's free forecast API, flagging ICE_RISK / EXTREME_HEAT / POSSIBLE_STORM_HAIL for the days a week's outdoor sessions are about to be scheduled on. Requires an `OPENWEATHER_API_KEY` env var (see Setup below); everything else in this fork needs no keys beyond the Garmin token.
 - **`workout://reference/exercise-catalog`** (new) - the full Garmin exercise `category`/`exerciseName` catalog (33 categories, 1207 names), bundled as data rather than left for the caller to guess. Upstream's own template only demonstrates a handful of categories (SQUAT, LUNGE, PUSH_UP, ROW, PLANK, CALF_RAISE); this resource is the authoritative rest of it, sourced from Garmin's own exercise database export.
+- **`routes.py`** (new) - `generate_running_route`, another non-Garmin tool: given a start point and target distance, generates a real-streets loop route via OpenRouteService's free round-trip routing. Garmin itself has no public route-generation API at all (the official Courses API is business-gated). Requires `OPENROUTESERVICE_API_KEY`. Only generates the route (GPX + a Google Maps preview link) - getting it onto the watch as a navigable Garmin Course is still unsolved (no course-upload support anywhere in `python-garminconnect`, and Garmin's course-service endpoints are undocumented), so for now the GPX needs manual import via Garmin Connect's own Courses page.
 
 Net effect: one MCP server, one auth step, that can answer "am I recovered enough for the hard session today, what's on my race calendar, will the weather let me run it, and here's this week's plan pushed to my watch" - what a human coach would actually check, in one place.
 
@@ -28,14 +29,16 @@ The original repo's own history traces back to [garmin_mcp](https://github.com/T
 - The workout reference resource had `strength_training` mapped to the wrong `sportTypeId` (4, which actually creates a **swimming** workout - confirmed via live upload + readback). Correct id is 5. Also documents the `reps` end-condition and the `category`/`weightValue`/`weightUnit` fields needed for a real strength-training step, none of which are in Garmin's own public docs (there isn't a public API for this at all - see [n1t3k/garmin-strength-api](https://github.com/n1t3k/garmin-strength-api)).
 - `get_calendar_events` was filtering on Garmin's `isRace` flag, which turns out to be inconsistently set (`true` for some registered road races, `false` for an equally-real 100km registered trail ultra on the same calendar). Now filters on the Events feature's own `itemType` instead.
 - A physio-prescribed "bird dog" exercise couldn't be set up: there is no `BIRD_DOG` category in Garmin's catalog at all. The real pairing is `category="HIP_STABILITY"`, `exerciseName="QUADRUPED_WITH_LEG_LIFT"` - confirmed directly from Garmin's own exercise database (see `workout://reference/exercise-catalog` above), which also caught two look-alike traps: `QUADRUPED_LEG_RAISE` and `QUADRUPED_ROCKING` sit in different categories (`LEG_RAISE` and `WARM_UP`) despite both being "quadruped" exercises too.
+- OpenRouteService's round-trip `length` parameter is only a weak preference, not a target: for a fixed seed, changing the requested length often changed nothing at all (6.0km, 4.5km, and 4.32km requests all returned the identical 8.28km route), and across seeds at a fixed length, actual distance ranged from -2% to +100%+ of target in testing. `generate_running_route` works around this by trying up to 15 seeds internally and returning the closest match rather than trusting length alone.
 
-### Setup for the weather tool
+### Setup for the weather and route tools
 
 ```
-$env:OPENWEATHER_API_KEY = "your-key-here"   # PowerShell, current session only
+$env:OPENWEATHER_API_KEY = "your-key-here"        # PowerShell, current session only
+$env:OPENROUTESERVICE_API_KEY = "your-key-here"   # PowerShell, current session only
 ```
 
-Get a free key at [openweathermap.org/api](https://openweathermap.org/api) (the 5-day/3-hour forecast endpoint this tool uses is on the free tier - no card required). For it to persist across restarts, add it to the `env` block of this server's entry in your MCP client config instead of setting it ad hoc each session.
+Free keys: [openweathermap.org/api](https://openweathermap.org/api) (5-day/3-hour forecast endpoint, free tier, no card) and [openrouteservice.org/dev](https://openrouteservice.org/dev/#/signup) (Directions API, free tier, no card). For either to persist across restarts, add it to the `env` block of this server's entry in your MCP client config instead of setting it ad hoc each session.
 
 Garmin's API is accessed via the [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) library and also the garth 
 
