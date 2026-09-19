@@ -51,16 +51,43 @@ def _build_gpx(coordinates: list, name: str) -> str:
 
 
 def _google_maps_link(coordinates: list) -> str:
-    """Build a Google Maps directions link from a sampled subset of waypoints
-    (Maps caps the number of waypoints in a URL, so this is a fallback for
-    manual use, not an exact replay of the generated route)."""
-    if len(coordinates) <= 10:
+    """Build an APPROXIMATE Google Maps preview link from a sampled subset of
+    the route's waypoints - NOT the real route.
+
+    Google's Directions URL API caps intermediate waypoints at 23 (25 stops
+    total including origin/destination), so a route with 100+ real GPX points
+    (typical for these routes - see generate_running_route's docstring) is
+    necessarily reduced to a small fraction of them here. Google then draws
+    its OWN path between those sampled points, which can diverge substantially
+    from the real foot-routed GPX, especially in areas with sparse/rural
+    roads - confirmed live: a real route's actual path looked nothing like
+    what this preview showed near one rural stretch, because Google's routing
+    invented a totally different connection between two widely-spaced sampled
+    points than the real fine-grained GPX took. travelmode=walking at least
+    keeps Google on footpaths rather than defaulting to driving directions,
+    but this is still an approximation, not a preview of the actual route -
+    treat the GPX as the only source of truth for the real path.
+    """
+    if len(coordinates) <= 25:
         sample = coordinates
     else:
-        step = len(coordinates) // 9
-        sample = coordinates[::step][:9] + [coordinates[-1]]
-    points = "/".join(f"{lat},{lon}" for lon, lat in sample)
-    return f"https://www.google.com/maps/dir/{points}"
+        step = len(coordinates) // 23
+        sample = coordinates[::step][:23] + [coordinates[-1]]
+
+    origin_lon, origin_lat = sample[0]
+    dest_lon, dest_lat = sample[-1]
+    via = sample[1:-1]
+    waypoints = "|".join(f"{lat},{lon}" for lon, lat in via)
+
+    url = (
+        "https://www.google.com/maps/dir/?api=1"
+        f"&origin={origin_lat},{origin_lon}"
+        f"&destination={dest_lat},{dest_lon}"
+        "&travelmode=walking"
+    )
+    if waypoints:
+        url += f"&waypoints={waypoints}"
+    return url
 
 
 def _geocode(api_key, address):
@@ -207,8 +234,15 @@ def register_tools(app):
 
         Does NOT push anything to the Garmin watch - that requires a Garmin
         "Course" upload, which isn't supported yet (see module docstring).
-        Returns a GPX string (for manual import into Garmin Connect ->
-        Courses -> Import) and a Google Maps link as a quick preview.
+        Returns a GPX string - the only reliable representation of the real
+        route (for manual import into Garmin Connect -> Courses -> Import) -
+        plus a `google_maps_preview_approximate` link. That link is NOT the
+        real route: it's Google's own driving/walking directions between a
+        handful of sampled waypoints (Google's URL API caps waypoints at 23,
+        far fewer than the route's real 100+ points), and can diverge
+        noticeably from the actual GPX, especially on sparse rural roads -
+        confirmed live, don't treat it as ground truth for what the route
+        actually looks like.
 
         Args:
             distance_km: Target route distance in kilometers
@@ -220,9 +254,18 @@ def register_tools(app):
                 used, and its geocoding confidence - check it before trusting the route,
                 since a low-confidence match may only be a town centroid, not the exact
                 street asked for.
-            points: Number of waypoints shaping the loop - lower values
-                stayed closer to the target distance in testing (default 3,
-                the minimum OpenRouteService allows)
+            points: Number of waypoints shaping the loop OpenRouteService's
+                round_trip algorithm targets. There's a real trade-off here,
+                confirmed live - it's not simply "higher is better":
+                lower values (default 3, the minimum OpenRouteService allows)
+                stayed closer to the target distance in testing, but can
+                produce a long out-and-back spur (walking out, then folding
+                back along nearly the same streets) that feels like hitting
+                a dead end mid-run. Higher values (e.g. 5) tended to produce
+                more genuinely loop-shaped routes with fewer/shorter spurs,
+                at some cost to distance accuracy. If the first result has an
+                awkward spur, retrying with a higher points value (or a
+                different seed) is worth it before assuming 3 is always right.
             seed: Optional integer to get back one EXACT specific route
                 (skips the closest-match search); 0 (default) searches
                 several seeds and returns the closest match
@@ -286,7 +329,7 @@ def register_tools(app):
             "seeds_tried": candidates_tried,
             "estimated_walking_duration_min": result["duration_min"],
             "waypoint_count": len(result["coords"]),
-            "google_maps_preview": _google_maps_link(result["coords"]),
+            "google_maps_preview_approximate": _google_maps_link(result["coords"]),
             "gpx": _build_gpx(result["coords"], route_name),
         }
         if geocode_info is not None:
