@@ -75,10 +75,16 @@ _AUTO_SEED_ATTEMPTS = 15
 
 
 def _build_gpx(coordinates: list, name: str) -> str:
-    """Build a minimal GPX 1.1 track from a list of [lon, lat] pairs."""
-    trkpts = "\n".join(
-        f'      <trkpt lat="{lat}" lon="{lon}"></trkpt>' for lon, lat in coordinates
-    )
+    """Build a minimal GPX 1.1 track from a list of [lon, lat] or [lon, lat,
+    elevation] tuples (an <ele> tag is added when elevation is present)."""
+    lines = []
+    for point in coordinates:
+        lon, lat = point[0], point[1]
+        if len(point) > 2 and point[2] is not None:
+            lines.append(f'      <trkpt lat="{lat}" lon="{lon}"><ele>{point[2]}</ele></trkpt>')
+        else:
+            lines.append(f'      <trkpt lat="{lat}" lon="{lon}"></trkpt>')
+    trkpts = "\n".join(lines)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<gpx version="1.1" creator="garmin-firefighter-coach" '
@@ -112,10 +118,10 @@ def _google_maps_link(coordinates: list) -> str:
         step = len(coordinates) // 23
         sample = coordinates[::step][:23] + [coordinates[-1]]
 
-    origin_lon, origin_lat = sample[0]
-    dest_lon, dest_lat = sample[-1]
+    origin_lon, origin_lat = sample[0][0], sample[0][1]
+    dest_lon, dest_lat = sample[-1][0], sample[-1][1]
     via = sample[1:-1]
-    waypoints = "|".join(f"{lat},{lon}" for lon, lat in via)
+    waypoints = "|".join(f"{p[1]},{p[0]}" for p in via)
 
     url = (
         "https://www.google.com/maps/dir/?api=1"
@@ -171,10 +177,41 @@ def _geocode(api_key, address):
     }, None
 
 
-def _request_route(api_key, start_lat, start_lon, distance_km, points, seed):
+def _ascent_descent_from_coords(coords):
+    """Fallback: sum positive/negative elevation deltas from 3D [lon, lat, ele]
+    coordinates, for when the API response doesn't include an ascent/descent
+    summary field directly."""
+    ascent = descent = 0.0
+    for i in range(1, len(coords)):
+        if len(coords[i]) < 3 or len(coords[i - 1]) < 3:
+            return None, None
+        delta = coords[i][2] - coords[i - 1][2]
+        if delta > 0:
+            ascent += delta
+        else:
+            descent += -delta
+    return round(ascent, 1), round(descent, 1)
+
+
+def _request_route(api_key, start_lat, start_lon, distance_km, points, seed, elevation=False):
     """Make one round-trip request to OpenRouteService. Returns
-    (result_dict_or_None, error_message_or_None)."""
+    (result_dict_or_None, error_message_or_None).
+
+    elevation=True adds a 3rd (elevation, in meters) value to each
+    coordinate and an ascent_m/descent_m pair to the result - NOT yet
+    independently live-verified against a real account (hit OpenRouteService's
+    request quota mid-development before this could be confirmed); the
+    "elevation" request field and the ascent/descent extraction below follow
+    OpenRouteService's documented format, but treat ascent_m/descent_m as
+    unconfirmed until someone checks a real response against this code.
+    """
     round_trip = {"length": distance_km * 1000, "points": max(3, points), "seed": seed}
+    body = {
+        "coordinates": [[start_lon, start_lat]],
+        "options": {"round_trip": round_trip},
+    }
+    if elevation:
+        body["elevation"] = True
 
     try:
         response = requests.post(
@@ -183,17 +220,14 @@ def _request_route(api_key, start_lat, start_lon, distance_km, points, seed):
                 "Authorization": api_key,
                 "Content-Type": "application/json; charset=utf-8",
             },
-            json={
-                "coordinates": [[start_lon, start_lat]],
-                "options": {"round_trip": round_trip},
-            },
+            json=body,
             timeout=15,
         )
     except requests.exceptions.RequestException as e:
         return None, f"Error contacting OpenRouteService: {str(e)}"
 
     if response.status_code in (401, 403):
-        return None, "OpenRouteService rejected the API key - check OPENROUTESERVICE_API_KEY."
+        return None, f"OpenRouteService rejected the request (HTTP {response.status_code}) - check OPENROUTESERVICE_API_KEY, or you may have hit its request quota: {response.text[:200]}"
     if response.status_code != 200:
         return None, f"OpenRouteService request failed: HTTP {response.status_code} - {response.text[:300]}"
 
@@ -205,12 +239,20 @@ def _request_route(api_key, start_lat, start_lon, distance_km, points, seed):
     feature = features[0]
     coords = feature.get("geometry", {}).get("coordinates", [])
     summary = feature.get("properties", {}).get("summary", {})
-    return {
+    result = {
         "seed": seed,
         "coords": coords,
         "actual_km": round(summary.get("distance", 0) / 1000, 2),
         "duration_min": round(summary.get("duration", 0) / 60, 1),
-    }, None
+    }
+    if elevation:
+        ascent = summary.get("ascent")
+        descent = summary.get("descent")
+        if ascent is None and descent is None:
+            ascent, descent = _ascent_descent_from_coords(coords)
+        result["ascent_m"] = ascent
+        result["descent_m"] = descent
+    return result, None
 
 
 def register_tools(app):
@@ -254,6 +296,7 @@ def register_tools(app):
         start_address: str = "",
         points: int = 3,
         seed: int = 0,
+        prefer: str = "distance",
     ) -> str:
         """Generate a round-trip running route on real streets/paths starting
         and ending at the given point, matching the target distance as
@@ -263,24 +306,22 @@ def register_tools(app):
         OpenRouteService's "length" parameter is only a weak preference (see
         module docstring) - to actually hit the target distance, this tool
         tries several seeds internally and returns whichever one came
-        closest, reporting the deviation so you know how good the match is.
+        closest (or hilliest/flattest - see `prefer`), reporting the
+        deviation so you know how good the match is.
 
         Pass an explicit non-zero `seed` to instead get that EXACT route back
         (e.g. to regenerate the same route a previous call already found and
         reported as good) - skips the search and returns it as-is, whatever
-        its actual distance turns out to be.
+        its actual distance/elevation turns out to be.
 
-        Does NOT push anything to the Garmin watch - that requires a Garmin
-        "Course" upload, which isn't supported yet (see module docstring).
-        Returns a GPX string - the only reliable representation of the real
-        route (for manual import into Garmin Connect -> Courses -> Import) -
-        plus a `google_maps_preview_approximate` link. That link is NOT the
-        real route: it's Google's own driving/walking directions between a
-        handful of sampled waypoints (Google's URL API caps waypoints at 23,
-        far fewer than the route's real 100+ points), and can diverge
-        noticeably from the actual GPX, especially on sparse rural roads -
-        confirmed live, don't treat it as ground truth for what the route
-        actually looks like.
+        Does NOT push anything to the Garmin watch by itself - pass the
+        returned "gpx" to create_garmin_course for that. Also returns a
+        `google_maps_preview_approximate` link, which is NOT the real route:
+        it's Google's own driving/walking directions between a handful of
+        sampled waypoints (Google's URL API caps waypoints at 23, far fewer
+        than the route's real 100+ points), and can diverge noticeably from
+        the actual GPX, especially on sparse rural roads - confirmed live,
+        don't treat it as ground truth for what the route actually looks like.
 
         Args:
             distance_km: Target route distance in kilometers
@@ -307,6 +348,17 @@ def register_tools(app):
             seed: Optional integer to get back one EXACT specific route
                 (skips the closest-match search); 0 (default) searches
                 several seeds and returns the closest match
+            prefer: "distance" (default) picks the seed closest to distance_km.
+                "hilly" or "flat" additionally request elevation data and pick
+                the seed with the most/least total ascent among the same
+                candidates, still reporting distance so you can judge the
+                trade-off. NOTE: elevation support is implemented against
+                OpenRouteService's documented request/response format but
+                NOT YET independently live-verified end to end (development
+                hit OpenRouteService's request quota before this could be
+                confirmed against a real response) - treat ascent_m/descent_m
+                in the result with more caution than the rest of this tool's
+                output until that's done.
         """
         api_key = os.environ.get("OPENROUTESERVICE_API_KEY")
         if not api_key:
@@ -316,6 +368,9 @@ def register_tools(app):
                 "at https://openrouteservice.org/dev/#/signup) and restart this "
                 "MCP server."
             )
+        if prefer not in ("distance", "hilly", "flat"):
+            return "prefer must be one of: distance, hilly, flat"
+        want_elevation = prefer != "distance"
 
         geocode_info = None
         if start_address:
@@ -328,7 +383,9 @@ def register_tools(app):
             return "Provide either start_lat+start_lon or start_address."
 
         if seed:
-            result, error = _request_route(api_key, start_lat, start_lon, distance_km, points, seed)
+            result, error = _request_route(
+                api_key, start_lat, start_lon, distance_km, points, seed, want_elevation
+            )
             if error:
                 return error
             if result is None:
@@ -339,16 +396,21 @@ def register_tools(app):
             errors = []
             for candidate_seed in range(1, _AUTO_SEED_ATTEMPTS + 1):
                 result, error = _request_route(
-                    api_key, start_lat, start_lon, distance_km, points, candidate_seed
+                    api_key, start_lat, start_lon, distance_km, points, candidate_seed, want_elevation
                 )
                 if error:
                     errors.append(error)
                     continue
                 if result is None:
                     continue
-                deviation = abs(result["actual_km"] - distance_km)
-                if best is None or deviation < best[0]:
-                    best = (deviation, result)
+                if prefer == "hilly":
+                    score = -(result.get("ascent_m") or 0)
+                elif prefer == "flat":
+                    score = result.get("ascent_m") or 0
+                else:
+                    score = abs(result["actual_km"] - distance_km)
+                if best is None or score < best[0]:
+                    best = (score, result)
 
             if best is None:
                 return errors[0] if errors else "OpenRouteService found no valid route for this start point/distance."
@@ -370,6 +432,13 @@ def register_tools(app):
             "google_maps_preview_approximate": _google_maps_link(result["coords"]),
             "gpx": _build_gpx(result["coords"], route_name),
         }
+        if want_elevation:
+            response["ascent_m"] = result.get("ascent_m")
+            response["descent_m"] = result.get("descent_m")
+            response["_elevation_caveat"] = (
+                "ascent_m/descent_m follow OpenRouteService's documented format "
+                "but are not yet independently live-verified - see prefer's docstring."
+            )
         if geocode_info is not None:
             response["geocoded_from_address"] = start_address
             response["geocoded_label"] = geocode_info["label"]
