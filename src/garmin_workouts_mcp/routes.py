@@ -198,12 +198,12 @@ def _request_route(api_key, start_lat, start_lon, distance_km, points, seed, ele
     (result_dict_or_None, error_message_or_None).
 
     elevation=True adds a 3rd (elevation, in meters) value to each
-    coordinate and an ascent_m/descent_m pair to the result - NOT yet
-    independently live-verified against a real account (hit OpenRouteService's
-    request quota mid-development before this could be confirmed); the
-    "elevation" request field and the ascent/descent extraction below follow
-    OpenRouteService's documented format, but treat ascent_m/descent_m as
-    unconfirmed until someone checks a real response against this code.
+    coordinate and an ascent_m/descent_m pair to the result. Live-verified:
+    ascent/descent come back as TOP-LEVEL properties (properties.ascent /
+    properties.descent), NOT under properties.summary (which only has
+    distance/duration) - an earlier version of this code checked summary
+    first and would have silently fallen through to the coordinate-sum
+    fallback every time.
     """
     round_trip = {"length": distance_km * 1000, "points": max(3, points), "seed": seed}
     body = {
@@ -238,7 +238,8 @@ def _request_route(api_key, start_lat, start_lon, distance_km, points, seed, ele
 
     feature = features[0]
     coords = feature.get("geometry", {}).get("coordinates", [])
-    summary = feature.get("properties", {}).get("summary", {})
+    props = feature.get("properties", {})
+    summary = props.get("summary", {})
     result = {
         "seed": seed,
         "coords": coords,
@@ -246,8 +247,11 @@ def _request_route(api_key, start_lat, start_lon, distance_km, points, seed, ele
         "duration_min": round(summary.get("duration", 0) / 60, 1),
     }
     if elevation:
-        ascent = summary.get("ascent")
-        descent = summary.get("descent")
+        # Confirmed live: ascent/descent are top-level properties, NOT under
+        # properties.summary (which only has distance/duration) - the
+        # earlier unverified code checked summary first.
+        ascent = props.get("ascent")
+        descent = props.get("descent")
         if ascent is None and descent is None:
             ascent, descent = _ascent_descent_from_coords(coords)
         result["ascent_m"] = ascent
@@ -350,15 +354,12 @@ def register_tools(app):
                 several seeds and returns the closest match
             prefer: "distance" (default) picks the seed closest to distance_km.
                 "hilly" or "flat" additionally request elevation data and pick
-                the seed with the most/least total ascent among the same
-                candidates, still reporting distance so you can judge the
-                trade-off. NOTE: elevation support is implemented against
-                OpenRouteService's documented request/response format but
-                NOT YET independently live-verified end to end (development
-                hit OpenRouteService's request quota before this could be
-                confirmed against a real response) - treat ascent_m/descent_m
-                in the result with more caution than the rest of this tool's
-                output until that's done.
+                the most/least total-ascent seed among candidates that are
+                still within 25% of the target distance (falling back to the
+                closest-distance seed if none qualify) - live-tested this
+                matters: without the 25% tolerance, "hilly" picked a seed
+                more than double the requested distance just because it had
+                the most climbing among all 15 tries.
         """
         api_key = os.environ.get("OPENROUTESERVICE_API_KEY")
         if not api_key:
@@ -392,29 +393,45 @@ def register_tools(app):
                 return f"OpenRouteService found no route for seed={seed} - try a different seed."
             candidates_tried = 1
         else:
-            best = None
+            candidates = []
             errors = []
             for candidate_seed in range(1, _AUTO_SEED_ATTEMPTS + 1):
-                result, error = _request_route(
+                cand, error = _request_route(
                     api_key, start_lat, start_lon, distance_km, points, candidate_seed, want_elevation
                 )
                 if error:
                     errors.append(error)
                     continue
-                if result is None:
+                if cand is None:
                     continue
-                if prefer == "hilly":
-                    score = -(result.get("ascent_m") or 0)
-                elif prefer == "flat":
-                    score = result.get("ascent_m") or 0
-                else:
-                    score = abs(result["actual_km"] - distance_km)
-                if best is None or score < best[0]:
-                    best = (score, result)
+                candidates.append(cand)
 
-            if best is None:
+            if not candidates:
                 return errors[0] if errors else "OpenRouteService found no valid route for this start point/distance."
-            result = best[1]
+
+            if prefer == "distance":
+                result = min(candidates, key=lambda c: abs(c["actual_km"] - distance_km))
+            else:
+                # Rank by elevation, but only among candidates reasonably close
+                # to the target distance - otherwise "hilly" can hand back a
+                # route more than double the requested length just because it
+                # had the most climbing among all 15 tries (seen live: a 6km
+                # request returned 13.44km before this tolerance was added).
+                # If nothing is within tolerance, distance wins over elevation
+                # preference - a route at the wrong distance isn't useful
+                # regardless of how hilly/flat it is.
+                tolerance = 0.25
+                close_enough = [
+                    c for c in candidates
+                    if abs(c["actual_km"] - distance_km) <= distance_km * tolerance
+                ]
+                if not close_enough:
+                    result = min(candidates, key=lambda c: abs(c["actual_km"] - distance_km))
+                elif prefer == "hilly":
+                    result = max(close_enough, key=lambda c: c.get("ascent_m") or 0)
+                else:
+                    result = min(close_enough, key=lambda c: c.get("ascent_m") or 0)
+
             candidates_tried = _AUTO_SEED_ATTEMPTS
 
         route_name = f"Generated route {distance_km}km from ({start_lat},{start_lon})"
@@ -435,10 +452,6 @@ def register_tools(app):
         if want_elevation:
             response["ascent_m"] = result.get("ascent_m")
             response["descent_m"] = result.get("descent_m")
-            response["_elevation_caveat"] = (
-                "ascent_m/descent_m follow OpenRouteService's documented format "
-                "but are not yet independently live-verified - see prefer's docstring."
-            )
         if geocode_info is not None:
             response["geocoded_from_address"] = start_address
             response["geocoded_label"] = geocode_info["label"]
