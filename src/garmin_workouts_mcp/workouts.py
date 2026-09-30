@@ -470,6 +470,73 @@ def register_tools(app):
             return f"Error deleting workout: {str(e)}"
 
     @app.tool()
+    async def rename_workout(workout_id: int, new_name: str) -> str:
+        """Rename an existing workout in place, without losing its workout_id
+
+        Previously the only way to rename a workout was delete + re-upload
+        under the new name, which churns the workout_id (breaking any
+        existing schedule_workout references to it) and loses history.
+        Uses Garmin's workout-service PUT endpoint instead - reverse-engineered
+        the same way as the Course update endpoints (see routes.py's module
+        docstring): fetch the full raw workout, change only workoutName, PUT
+        it back. Live-verified end to end: created a throwaway test workout,
+        renamed it via this exact method, confirmed the new name via a
+        re-fetch, then deleted it - no id churn, no data loss.
+
+        Args:
+            workout_id: ID of the workout to rename (get IDs from get_workouts)
+            new_name: The new workout name
+        """
+        try:
+            full = garmin_client.get_workout_by_id(workout_id)
+            if not full:
+                return f"No workout found with ID {workout_id}."
+            full["workoutName"] = new_name
+            url = f"workout-service/workout/{workout_id}"
+            response = garmin_client.garth.put("connectapi", url, json=full, api=True)
+            if response.status_code in (200, 204):
+                return json.dumps({
+                    "status": "success",
+                    "workout_id": workout_id,
+                    "workout_name": new_name,
+                }, indent=2)
+            return f"Rename failed: HTTP {response.status_code} - {response.text[:300]}"
+        except Exception as e:
+            return f"Error renaming workout: {str(e)}"
+
+    @app.tool()
+    async def update_workout(workout_id: int, workout_data: dict) -> str:
+        """Completely replace an existing workout's structure/metadata in
+        place, without losing its workout_id
+
+        For anything beyond a plain rename (changing steps, sport type, etc.)
+        on an existing workout, instead of delete + re-upload. Use
+        get_workout_by_id to fetch the current full structure, modify it, and
+        pass the whole thing back here - this does a full replace, not a
+        merge. Same underlying PUT endpoint as rename_workout (see its
+        docstring for how this was reverse-engineered and verified).
+
+        IMPORTANT: Same field-format rules as upload_workout - "reps"
+        endCondition, "category"/"weightValue"/"weightUnit" for strength
+        steps, "zoneNumber" (not targetValueOne/Two) for HR zone targets.
+
+        Args:
+            workout_id: ID of the workout to update (get IDs from get_workouts)
+            workout_data: The complete replacement workout structure (same
+                format as upload_workout, but must include this workout_id
+                so Garmin knows which workout it's replacing)
+        """
+        try:
+            _fix_hr_zone_steps(workout_data)
+            url = f"workout-service/workout/{workout_id}"
+            response = garmin_client.garth.put("connectapi", url, json=workout_data, api=True)
+            if response.status_code in (200, 204):
+                return json.dumps({"status": "success", "workout_id": workout_id}, indent=2)
+            return f"Update failed: HTTP {response.status_code} - {response.text[:300]}"
+        except Exception as e:
+            return f"Error updating workout: {str(e)}"
+
+    @app.tool()
     async def delete_workouts(workout_ids: list[int]) -> str:
         """Delete multiple workouts from Garmin Connect in a single call
 
