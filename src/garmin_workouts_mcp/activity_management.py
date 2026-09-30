@@ -25,7 +25,16 @@ def register_tools(app):
         Args:
             start_date: Start date in YYYY-MM-DD format
             end_date: End date in YYYY-MM-DD format
-            activity_type: Optional activity type filter (e.g., cycling, running, swimming)
+            activity_type: Optional activity type filter. Valid values: cycling,
+                running, swimming, multi_sport, fitness_equipment, hiking,
+                walking, other. NOTE: this is a DIFFERENT vocabulary than the
+                sportTypeKey used elsewhere in this server for workouts -
+                "strength_training" is NOT valid here and returns HTTP 400
+                (confirmed live). The closest match is "fitness_equipment",
+                but it's a broader gym-activities bucket, not strength-only -
+                confirmed live it also returns yoga sessions alongside
+                strength_training ones, so filter/inspect the result further
+                if you need strength sessions specifically.
         """
         try:
             activities = garmin_client.get_activities_by_date(start_date, end_date, activity_type)
