@@ -84,12 +84,47 @@ def register_tools(app):
     async def get_sleep(cdate: str) -> str:
         """Get sleep stages, duration and sleep score for a date
 
+        Curated: the raw Garmin response is 300k+ characters (per-epoch
+        sleep movement/HR/stress/body-battery/SpO2/respiration time series
+        for the whole night), which blows past typical tool-result size
+        limits. This returns only the summary fields a coach actually
+        needs - stage durations, sleepScores, and the overnight HRV/RHR/body
+        battery summaries - dropping every raw time series. Confirmed live:
+        a real night's data went from 317,889 characters to well under 2,000.
+
         Args:
             cdate: Date in YYYY-MM-DD format
         """
         try:
             data = garmin_client.get_sleep_data(cdate)
-            return _dump(data, cdate, "sleep")
+            if not data:
+                return f"No sleep data found for {cdate}."
+
+            dto = data.get("dailySleepDTO") or {}
+            curated = {
+                "date": cdate,
+                "sleep_time_seconds": dto.get("sleepTimeSeconds"),
+                "deep_sleep_seconds": dto.get("deepSleepSeconds"),
+                "light_sleep_seconds": dto.get("lightSleepSeconds"),
+                "rem_sleep_seconds": dto.get("remSleepSeconds"),
+                "awake_seconds": dto.get("awakeSleepSeconds"),
+                "awake_count": dto.get("awakeCount"),
+                "avg_sleep_hr_bpm": dto.get("avgHeartRate"),
+                "avg_sleep_stress": dto.get("avgSleepStress"),
+                "avg_spo2_percent": dto.get("averageSpO2Value"),
+                "lowest_spo2_percent": dto.get("lowestSpO2Value"),
+                "avg_respiration": dto.get("averageRespirationValue"),
+                "sleep_score_feedback": dto.get("sleepScoreFeedback"),
+                "sleep_score_insight": dto.get("sleepScoreInsight"),
+                "sleep_scores": dto.get("sleepScores"),
+                "sleep_need": dto.get("sleepNeed"),
+                "avg_overnight_hrv": data.get("avgOvernightHrv"),
+                "hrv_status": data.get("hrvStatus"),
+                "resting_heart_rate": data.get("restingHeartRate"),
+                "body_battery_change": data.get("bodyBatteryChange"),
+            }
+            curated = {k: v for k, v in curated.items() if v is not None}
+            return json.dumps(curated, indent=2, default=str)
         except Exception as e:
             return f"Error retrieving sleep data: {str(e)}"
 

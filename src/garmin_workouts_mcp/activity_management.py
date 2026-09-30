@@ -354,15 +354,55 @@ def register_tools(app):
     async def get_activity_exercise_sets(activity_id: int) -> str:
         """Get exercise sets for strength training activities
 
+        Curated: the raw Garmin response includes ~25 barbell-velocity-tracker
+        fields per set (avgConcentricMeanVelocity, maxEccentricPeakPower, etc.)
+        that are null for a dumbbell/bodyweight/band setup, plus interleaved
+        REST-type sets with no exercise data - together these routinely push
+        the raw response past 100k characters for a normal session. This
+        returns only ACTIVE sets, each reduced to category/exercise name/
+        reps/weight(kg)/duration, plus a rest-set count and total rest time.
+        Confirmed live: a real 92-set session went from 109,646 characters
+        to 9,170 (a ~92% reduction) - a session with many active sets will
+        still be a sizeable response, just without the ~25 always-null
+        velocity/power fields per set that made up most of the original size.
+
         Args:
             activity_id: ID of the activity to retrieve exercise sets for
         """
         try:
-            exercise_sets = garmin_client.get_activity_exercise_sets(activity_id)
-            if not exercise_sets:
+            data = garmin_client.get_activity_exercise_sets(activity_id)
+            all_sets = (data or {}).get("exerciseSets") or []
+            if not all_sets:
                 return f"No exercise sets found for activity with ID {activity_id}"
 
-            return json.dumps(exercise_sets, indent=2)
+            active_sets = []
+            rest_count = 0
+            rest_duration = 0.0
+            for s in all_sets:
+                if s.get("setType") == "REST":
+                    rest_count += 1
+                    rest_duration += s.get("duration") or 0.0
+                    continue
+                exercises = s.get("exercises") or [{}]
+                ex = exercises[0]
+                weight_g = s.get("weight")
+                active_sets.append({
+                    "category": ex.get("category"),
+                    "exercise_name": ex.get("name"),
+                    "reps": s.get("repetitionCount"),
+                    "weight_kg": round(weight_g / 1000, 1) if weight_g is not None else None,
+                    "duration_seconds": s.get("duration"),
+                    "start_time": s.get("startTime"),
+                })
+
+            curated = {
+                "activity_id": activity_id,
+                "active_set_count": len(active_sets),
+                "active_sets": active_sets,
+                "rest_set_count": rest_count,
+                "total_rest_seconds": round(rest_duration, 1),
+            }
+            return json.dumps(curated, indent=2, default=str)
         except Exception as e:
             return f"Error retrieving activity exercise sets: {str(e)}"
 
