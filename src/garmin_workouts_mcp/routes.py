@@ -35,8 +35,13 @@ import re
 
 import requests
 
-DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/foot-walking/geojson"
-GEOCODE_URL = "https://api.openrouteservice.org/geocode/search"
+# api.openrouteservice.org was deprecated 2026-04-28 in favor of api.heigit.org
+# (unified HeiGIT API domain) - confirmed live this is why every call here was
+# returning 403 "Quota exceeded" regardless of actual quota: the deprecated
+# host does that unconditionally now, while the same key gets a normal 200 on
+# the new host. Same API key/auth header works on both, only the URL changed.
+DIRECTIONS_URL = "https://api.heigit.org/openrouteservice/v2/directions/foot-walking/geojson"
+GEOCODE_URL = "https://api.heigit.org/pelias/v1/search"
 
 # GpxActivityType enum values, per garmin-connect (TS) src/garmin/types/gpx.ts -
 # confirmed working live for RUNNING.
