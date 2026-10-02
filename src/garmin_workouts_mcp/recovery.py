@@ -5,8 +5,9 @@ Adds the metrics garmin-workouts-mcp deliberately left out (it scopes itself to
 activities + workouts): training readiness, HRV, body battery, sleep, stress,
 resting heart rate, training status, race predictions, calendar events, body
 weight, Endurance Score, Hill Score, floors climbed, intensity minutes,
-personal records, hydration, and gear (shoe/bike mileage tracking). Read-only,
-same garth/garminconnect client and token store as the rest of the server -
+personal records, hydration, gear (shoe/bike mileage tracking), and lifestyle
+logging (massage/illness/injury/self-care day flags). Read-only, same
+garth/garminconnect client and token store as the rest of the server -
 no extra auth step.
 """
 import json
@@ -346,6 +347,34 @@ def register_tools(app):
             return _dump(data, cdate, "hydration")
         except Exception as e:
             return f"Error retrieving hydration data: {str(e)}"
+
+    @app.tool()
+    async def get_lifestyle_logging(cdate: str) -> str:
+        """Get Garmin Connect's "Lifestyle Logging" data for a date - the
+        app's manual daily checklist of behaviors like Massage Therapy,
+        Illness, Injured, Stretching, Sauna/Steam Room, Cold Showers/Baths,
+        Shared Bed, Pet in Bedroom, etc.
+
+        Read-only. Useful for correlating recovery data (HR, HRV, sleep)
+        against context the user explicitly logged - e.g. flagging an
+        "Illness" or "Injured" day, or a massage day, rather than inferring
+        it. NOTE: this is a per-account configurable checklist (currently 8
+        trackable behaviors on this account) and this tool only exposes
+        whatever the user has actually checked off in the Garmin Connect
+        app - if they haven't used this feature for a given date, there is
+        nothing here to read (confirmed live: completedTracking was 0 for
+        several recent days on this account, meaning the feature is
+        accessible but not yet actively used - this tool's output will be
+        sparse/empty until that changes).
+
+        Args:
+            cdate: Date in YYYY-MM-DD format
+        """
+        try:
+            data = garmin_client.get_lifestyle_logging_data(cdate)
+            return _dump(data, cdate, "lifestyle_logging")
+        except Exception as e:
+            return f"Error retrieving lifestyle logging data: {str(e)}"
 
     @app.tool()
     async def get_gear() -> str:
