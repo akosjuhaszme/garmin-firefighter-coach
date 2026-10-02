@@ -358,14 +358,15 @@ def register_tools(app):
         Read-only. Useful for correlating recovery data (HR, HRV, sleep)
         against context the user explicitly logged - e.g. flagging an
         "Illness" or "Injured" day, or a massage day, rather than inferring
-        it. NOTE: this is a per-account configurable checklist (currently 8
-        trackable behaviors on this account) and this tool only exposes
-        whatever the user has actually checked off in the Garmin Connect
-        app - if they haven't used this feature for a given date, there is
-        nothing here to read (confirmed live: completedTracking was 0 for
-        several recent days on this account, meaning the feature is
-        accessible but not yet actively used - this tool's output will be
-        sparse/empty until that changes).
+        it. This is a per-account configurable checklist (8 trackable
+        behaviors on this account); each entry has a `logStatus` field
+        ("YES"/"NO") once the user has actually filled in that day's
+        checklist in the Garmin Connect app - confirmed live, including a
+        real "Illness: YES" entry. Before the checklist is filled in for a
+        date, entries are still returned but without `logStatus` - treat
+        those as "not yet logged", not as a confirmed "NO".
+
+        Args:
 
         Args:
             cdate: Date in YYYY-MM-DD format
