@@ -129,31 +129,7 @@ def register_tools(app):
         except Exception as e:
             return f"Error retrieving sleep data: {str(e)}"
 
-    @app.tool()
-    async def get_body_weight(start_date: str, end_date: str = "") -> str:
-        """Get body weight entries between two dates
-
-        Useful for correlating pace/HR trends against bodyweight changes -
-        e.g. distinguishing genuine aerobic fitness gains from the pace-at-HR
-        improvement that comes from being lighter, or checking whether the
-        profile weight behind Garmin's VO2max/race-time estimates is stale.
-        Read-only (does not log weigh-ins).
-
-        Args:
-            start_date: Start date in YYYY-MM-DD format
-            end_date: Optional end date in YYYY-MM-DD format (defaults to start_date)
-        """
-        try:
-            data = garmin_client.get_weigh_ins(start_date, end_date or start_date)
-            if not data:
-                return f"No body weight data found between {start_date} and {end_date or start_date}."
-            return json.dumps({
-                "start_date": start_date,
-                "end_date": end_date or start_date,
-                "body_weight": data
-            }, indent=2, default=str)
-        except Exception as e:
-            return f"Error retrieving body weight data: {str(e)}"
+    # get_body_weight lives in tracking.py (curated kg output + trend, plus log/delete)
 
     @app.tool()
     async def get_stress(cdate: str) -> str:

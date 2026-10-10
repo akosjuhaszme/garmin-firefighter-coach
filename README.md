@@ -19,6 +19,7 @@ This fork closes that gap without widening the attack surface or adding a second
 - **`workout://reference/exercise-catalog`** (new) - the full Garmin exercise `category`/`exerciseName` catalog (33 categories, 1207 names), bundled as data rather than left for the caller to guess. Upstream's own template only demonstrates a handful of categories (SQUAT, LUNGE, PUSH_UP, ROW, PLANK, CALF_RAISE); this resource is the authoritative rest of it, sourced from Garmin's own exercise database export.
 - **`routes.py`** (new) - `generate_running_route`: given a start point (coordinates or a free-text address, via the bundled `geocode_address`) and target distance, generates a real-streets loop route via OpenRouteService's free round-trip routing (requires `OPENROUTESERVICE_API_KEY` - Garmin itself has no public route-generation API at all, the official Courses API is business-gated). Then **`create_garmin_course` / `list_garmin_courses` / `delete_garmin_course`** push that route onto the watch as a real, navigable Garmin Course - reverse-engineered from Garmin's undocumented course-service API (no course support exists anywhere in `python-garminconnect`), live-verified end to end (create -> real courseId assigned -> delete -> no residue) against a real account. Same Garmin auth as everything else, no extra login for this half either.
 - **`rename_workout` / `update_workout`** (new) - update an existing workout's name or full structure in place via Garmin's workout-service PUT endpoint (reverse-engineered the same way as the course update endpoints), instead of the delete+reupload upstream requires, which churned the `workout_id` and broke any `schedule_workout` calls already pointing at it. Live-verified end to end against a real account.
+- **`tracking.py`** (new) - body weight, athlete profile, daily summary, supplement log and a compact multi-day wellness trend, all as small curated output (see "Body, nutrition and supplement tracking" below). Includes `log_body_weight`, which writes a manual weigh-in to Garmin's weight-service, and a local-only supplement log (Garmin has no supplement tracking to build on).
 
 Net effect: one MCP server, one auth step, that can answer "am I recovered enough for the hard session today, what's on my race calendar, will the weather let me run it, here's a route for an unfamiliar location pushed straight to my watch as a navigable course, and here's this week's plan pushed to my watch" - what a human coach would actually check, in one place.
 
@@ -53,6 +54,28 @@ $env:OPENROUTESERVICE_API_KEY = "your-key-here"   # PowerShell, current session 
 ```
 
 Free keys: [openweathermap.org/api](https://openweathermap.org/api) (5-day/3-hour forecast endpoint, free tier, no card) and [openrouteservice.org/dev](https://openrouteservice.org/dev/#/signup) (Directions API, free tier, no card). For either to persist across restarts, add it to the `env` block of this server's entry in your MCP client config instead of setting it ad hoc each session.
+
+### Body, nutrition and supplement tracking
+
+All of these return small, curated JSON (Garmin's raw weigh-in, sleep and daily-summary payloads are large and mostly null). They are record-keeping and trend tools, **not medical advice** - questions about supplements, deficiencies or health conditions belong with a doctor / lab test, and the tool descriptions say so.
+
+| Tool | What it does |
+|---|---|
+| `get_body_weight` | Per-day weight in kg, change vs the previous weigh-in, and a summary: latest value, 3-week moving average, weekly change (least-squares slope over 28 days, negative = losing), days since the last weigh-in. Body fat / water / muscle / bone / BMI appear only when the weigh-in has them (a manual one has none). Replaces the earlier raw passthrough (grams, a dozen null fields). |
+| `log_body_weight` / `delete_body_weight_entry` | Write / undo a manual weigh-in via the weight-service upload. Guards against typos: rejects values outside 30-300 kg, future timestamps and a jump of more than 5 kg versus the previous weigh-in unless `force=True`. The result includes the `sample_pk` needed for deletion. |
+| `get_athlete_profile` | Birth date and computed age, gender, height, profile weight, VO2max, max HR, lactate-threshold HR and speed, and the HR-zone boundaries Garmin currently uses (zone floors/ceilings in bpm, plus whether they are LACTATE_THRESHOLD- or %max-based). Read-only. |
+| `get_daily_summary` | Calories (total / active / BMR, consumed and remaining), steps, floors, intensity minutes, hydration. Fields that really are empty are listed under `not_available` instead of being silently dropped. |
+| `log_supplement` / `list_supplements` / `delete_supplement_entry` | Local supplement log: name, dose, unit, time, note. |
+| `set_supplement_plan` / `get_supplement_adherence` | Local plan (dose, times/day, days/week) and daily/weekly adherence against it, including the exact missed days for daily plans. |
+| `get_wellness_trend` | One compact row per day for N days (1-42): weight, sleep score/hours, HRV + status, resting HR, Body Battery change, training load and workout count, Lifestyle Logging flags (e.g. illness, massage) and quantities (e.g. caffeine), and logged supplements, plus window averages. Uses Garmin's range endpoints (one call each for sleep, resting HR, weight and activities) and one lifestyle call per day, in parallel. |
+
+**What Garmin does not provide** (verified against a real account):
+
+- **Consumed calories and macros.** Garmin has no food log of its own. `consumedKilocalories` stays empty (and `includesCalorieConsumedData` false) unless a calorie-intake service such as MyFitnessPal is linked to Garmin Connect; protein/carbs/fat are never exposed. `get_daily_summary` reports this explicitly.
+- **Supplement / vitamin tracking.** The Lifestyle Logging habit catalogue (lifestyle, self-care, treatments, sleep-related, life status, custom) contains no vitamin or supplement habit, there is no catalogue endpoint, and the write endpoint is undocumented. Supplements are therefore stored **locally** in `~/.garmin-coach/` (`supplements.jsonl`, `supplement_plan.json`; override with `GARMIN_COACH_DATA_DIR`). Nothing is uploaded to Garmin, and the directory is git-ignored. Habits you track in the Garmin app (including, untested, ones you add under "Custom") are read by `get_lifestyle_logging` and flow into `get_wellness_trend`.
+- **Lactate-threshold pace.** Garmin returns a raw speed number whose unit is undocumented. `get_athlete_profile` returns the raw value plus a clearly labelled *unverified* pace estimate (assuming raw x 10 = m/s) - check it against the Garmin app before relying on it.
+
+`log_body_weight` was live-verified end to end (upload -> read back -> delete -> read back: gone), and every tool above was exercised against a real account.
 
 Garmin's API is accessed via the [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) library and also the garth 
 

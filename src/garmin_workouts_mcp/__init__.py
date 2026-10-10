@@ -23,6 +23,7 @@ from garmin_workouts_mcp import workout_templates
 from garmin_workouts_mcp import recovery
 from garmin_workouts_mcp import weather
 from garmin_workouts_mcp import routes
+from garmin_workouts_mcp import tracking
 
 # Prefer IPv4 for every outbound HTTP call this server makes (Garmin, OpenRouteService,
 # OpenWeatherMap - all reachable over IPv4). Found live: on a machine whose IPv6 route
@@ -284,6 +285,7 @@ def main():
     workouts.configure(garmin_client)
     recovery.configure(garmin_client)
     routes.configure(garmin_client)
+    tracking.configure(garmin_client)
 
     # Create the MCP app
     app = FastMCP("Garmin Connect v1.0")
@@ -294,6 +296,7 @@ def main():
     app = recovery.register_tools(app)
     app = weather.register_tools(app)
     app = routes.register_tools(app)
+    app = tracking.register_tools(app)
 
     # Register resources (workout templates)
     app = workout_templates.register_resources(app)

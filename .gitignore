@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# local supplement log / personal data dir (default ~/.garmin-coach, never commit)
+.garmin-coach/
