@@ -455,9 +455,10 @@ def register_tools(app):
         """Curated Garmin daily summary: calories, steps, floors, intensity minutes, hydration
 
         Calories: total / active / BMR burned, plus consumed and remaining. Consumed
-        is null (and listed under not_available) unless a calorie-intake source such
-        as MyFitnessPal is linked to Garmin Connect - Garmin has no built-in food
-        log, and macros (protein/carbs/fat) are never available from Garmin.
+        is null (and listed under not_available) unless something feeds it: a
+        calorie-intake service such as MyFitnessPal linked to Garmin Connect, or
+        the paid Garmin Connect+ Nutrition log (whether that populates this field
+        is unverified). Macros (protein/carbs/fat) are not part of this summary.
         Intensity minutes are moderate + vigorous (Garmin counts vigorous double
         toward the weekly goal). Hydration is whatever was logged in the app.
 
@@ -505,10 +506,10 @@ def register_tools(app):
             missing = []
             if s.get("consumedKilocalories") is None:
                 missing.append(
-                    "consumed_kcal: no calorie-intake source linked to Garmin Connect "
-                    "(it has no food log of its own - needs e.g. MyFitnessPal)"
+                    "consumed_kcal: nothing feeds it - link e.g. MyFitnessPal to "
+                    "Garmin Connect, or use the paid Connect+ Nutrition log"
                 )
-            missing.append("macros (protein/carbs/fat): not provided by Garmin")
+            missing.append("macros (protein/carbs/fat): not in this summary")
             out["not_available"] = missing
             return json.dumps(out, indent=2)
         except Exception as e:
