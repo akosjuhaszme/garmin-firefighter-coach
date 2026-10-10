@@ -460,7 +460,10 @@ def register_tools(app):
         the paid Garmin Connect+ Nutrition log (whether that populates this field
         is unverified). Macros (protein/carbs/fat) are not part of this summary.
         Intensity minutes are moderate + vigorous (Garmin counts vigorous double
-        toward the weekly goal). Hydration is whatever was logged in the app.
+        toward the weekly goal). Hydration: intake logged (in the app or via
+        log_hydration), the daily goal, Garmin's sweat-loss estimate from the day's
+        workouts, and the base goal (Garmin adds the sweat-loss estimate on top of
+        a base goal to get the daily goal).
 
         Args:
             cdate: YYYY-MM-DD (default: today; today's totals are partial)
@@ -494,9 +497,14 @@ def register_tools(app):
             })
             try:
                 hyd = garmin_client.get_hydration_data(day.isoformat()) or {}
+                intake, goal = hyd.get("valueInML"), hyd.get("goalInML")
+                sweat = hyd.get("sweatLossInML")
                 out["hydration"] = _drop_none({
-                    "intake_ml": hyd.get("valueInML"),
-                    "goal_ml": hyd.get("goalInML"),
+                    "intake_ml": intake,
+                    "goal_ml": goal,
+                    "base_goal_ml": round(goal - sweat) if goal is not None and sweat is not None else None,
+                    "sweat_loss_est_ml": sweat,
+                    "remaining_ml": round(max(goal - intake, 0)) if goal is not None and intake is not None else None,
                 })
             except Exception:
                 pass
@@ -514,6 +522,59 @@ def register_tools(app):
             return json.dumps(out, indent=2)
         except Exception as e:
             return f"Error retrieving daily summary: {e}"
+
+    @app.tool()
+    async def log_hydration(amount_ml: float, date: str = "", time: str = "") -> str:
+        """Log (or correct) water intake in Garmin Connect's hydration tracker
+
+        WRITES to the user's real Garmin account - only log amounts the user
+        actually reported. Adds amount_ml to the day's intake; a negative amount
+        subtracts (to undo a mistaken entry) but never takes the total below zero.
+        Accepts 1-2000 ml per call. The result shows the day's new total, the daily
+        goal, and Garmin's sweat-loss estimate: the goal is a base goal plus the
+        sweat-loss estimate from that day's workouts (activity "waterEstimated"),
+        so a hard session raises it.
+
+        Args:
+            amount_ml: Millilitres to add (negative to subtract), e.g. 500
+            date: YYYY-MM-DD (default: today)
+            time: HH:MM local time of the intake (default: now)
+        """
+        try:
+            if amount_ml == 0 or abs(amount_ml) > 2000:
+                return "Refusing: amount_ml must be non-zero and at most 2000 ml per call."
+            day = _parse_date(date, "date") if date else _today()
+            if time:
+                at = _time(*[int(p) for p in time.split(":")])
+            elif day == _today():
+                at = datetime.now().time().replace(microsecond=0)
+            else:
+                at = _time(12, 0)
+            when = datetime.combine(day, at)
+            if when > datetime.now() + timedelta(minutes=5):
+                return f"Refusing to log hydration in the future ({when.isoformat(timespec='minutes')})."
+
+            before = garmin_client.get_hydration_data(day.isoformat()) or {}
+            current = before.get("valueInML") or 0.0
+            if amount_ml < 0 and current + amount_ml < 0:
+                return f"Refusing: only {current:g} ml logged on {day}, cannot subtract {abs(amount_ml):g} ml."
+
+            garmin_client.add_hydration_data(
+                value_in_ml=amount_ml,
+                timestamp=when.isoformat(timespec="milliseconds"),
+                cdate=day.isoformat(),
+            )
+            after = garmin_client.get_hydration_data(day.isoformat()) or {}
+            return json.dumps(_drop_none({
+                "status": "success",
+                "date": day.isoformat(),
+                "added_ml": amount_ml,
+                "intake_ml": after.get("valueInML"),
+                "goal_ml": after.get("goalInML"),
+                "sweat_loss_est_ml": after.get("sweatLossInML"),
+            }), indent=2)
+        except Exception as e:
+            return f"Error logging hydration: {e}"
 
     # ---- 4. supplements (local log) -------------------------------------- #
 
@@ -788,8 +849,9 @@ def register_tools(app):
                     day = (a.get("startTimeLocal") or "")[:10]
                     if not day:
                         continue
-                    row = per_day.setdefault(day, {"load": 0.0, "n": 0})
+                    row = per_day.setdefault(day, {"load": 0.0, "n": 0, "sweat": 0.0})
                     row["load"] += a.get("activityTrainingLoad") or 0.0
+                    row["sweat"] += a.get("waterEstimated") or 0.0
                     row["n"] += 1
                 return per_day
 
@@ -853,6 +915,7 @@ def register_tools(app):
                     "bb_change": sl.get("bodyBatteryChange"),
                     "training_load": round(ld["load"], 1) if ld else None,
                     "workouts": ld["n"] if ld else None,
+                    "sweat_est_ml": round(ld["sweat"]) if ld and ld["sweat"] else None,
                     "flags": lf.get("flags") or None,
                     "quantities": lf.get("quantities") or None,
                     "supplements": supplements.get(d),

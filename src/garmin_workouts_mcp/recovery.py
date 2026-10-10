@@ -311,9 +311,10 @@ def register_tools(app):
 
     @app.tool()
     async def get_hydration(cdate: str) -> str:
-        """Get logged hydration intake for a date. Read-only - does not log
-        hydration (this server intentionally has no write tool for it; nutrition
-        tracking is out of scope for this fork).
+        """Get the raw hydration record for a date: logged intake (valueInML), the
+        daily goal (goalInML) and the sweat-loss estimate Garmin has added to it
+        (sweatLossInML). Read-only - use log_hydration to log water, or
+        get_daily_summary for a curated view.
 
         Args:
             cdate: Date in YYYY-MM-DD format
