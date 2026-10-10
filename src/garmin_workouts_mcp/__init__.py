@@ -2,10 +2,15 @@
 Modular MCP Server for Garmin Connect Data
 """
 
+import contextlib
+import json
 import os
+import socket
 import sys
+import threading
 
 import requests
+import urllib3.util.connection as _urllib3_connection
 from mcp.server.fastmcp import FastMCP
 
 from garth.exc import GarthHTTPError
@@ -18,6 +23,68 @@ from garmin_workouts_mcp import workout_templates
 from garmin_workouts_mcp import recovery
 from garmin_workouts_mcp import weather
 from garmin_workouts_mcp import routes
+
+# Prefer IPv4 for every outbound HTTP call this server makes (Garmin, OpenRouteService,
+# OpenWeatherMap - all reachable over IPv4). Found live: on a machine whose IPv6 route
+# to Cloudflare is black-holed, connectapi.garmin.com resolves to 5 AAAA + 5 A records;
+# urllib3 tries the AAAA addresses first, each one hangs until the OS connect timeout,
+# and only then falls back to IPv4 - ~50s before the first byte, versus 0.4s with IPv4
+# only. That made the startup login outlast the MCP client's 30s CONNECT_TIMEOUT, so
+# the server never connected at all. Set GARMIN_MCP_ALLOW_IPV6=1 to keep dual-stack
+# behaviour (e.g. on an IPv6-only network).
+if os.environ.get("GARMIN_MCP_ALLOW_IPV6", "").lower() not in ("1", "true", "yes"):
+    _urllib3_connection.allowed_gai_family = lambda: socket.AF_INET
+
+# How long a tool call waits for the background login (see _LazyGarminClient) to finish.
+_LOGIN_WAIT_SECONDS = 120
+
+
+class _LazyGarminClient:
+    """Stand-in for the Garmin client that lets the MCP server answer `initialize`
+    immediately while the login runs in a background thread.
+
+    Doing the login before app.run() meant any slow network (token refresh, DNS,
+    broken IPv6, Garmin throttling) made the whole server miss the MCP client's
+    30s connect timeout and show up as "failed to connect" with no explanation.
+    Now the handshake never waits on Garmin; tool calls block until the login
+    finishes (or fail with the real login error message instead of a timeout).
+    """
+
+    def __init__(self):
+        self._ready = threading.Event()
+        self._client = None
+        self._error = None
+
+    def _finish(self, client, error=None):
+        self._client = client
+        self._error = error
+        self._ready.set()
+
+    def __getattr__(self, name):
+        # Only reached for attributes not found on the proxy itself.
+        if not self._ready.wait(timeout=_LOGIN_WAIT_SECONDS):
+            raise RuntimeError(
+                f"Garmin login is still in progress after {_LOGIN_WAIT_SECONDS}s - "
+                "check network connectivity to connectapi.garmin.com and retry."
+            )
+        if self._client is None:
+            raise RuntimeError(
+                self._error
+                or "Garmin login failed - run 'garmin-mcp-auth' to re-authenticate."
+            )
+        return getattr(self._client, name)
+
+
+def _persist_refreshed_tokens(garmin, tokenstore_path):
+    """garth refreshes an expired OAuth2 token in memory during login but never
+    writes it back, so every later start repeats the refresh (an extra
+    round-trip to Garmin each time). Save it when it differs from what's on disk."""
+    with contextlib.suppress(Exception):
+        path = os.path.join(os.path.expanduser(tokenstore_path), "oauth2_token.json")
+        with open(path, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        if on_disk.get("expires_at") != garmin.garth.oauth2_token.expires_at:
+            garmin.garth.dump(os.path.expanduser(tokenstore_path))
 
 
 def is_interactive_terminal() -> bool:
@@ -95,6 +162,7 @@ def init_api(email, password):
         try:
             garmin = Garmin(is_cn=is_cn)
             garmin.login(tokenstore)
+            _persist_refreshed_tokens(garmin, tokenstore)
         finally:
             sys.stderr = old_stderr
 
@@ -189,13 +257,27 @@ def init_api(email, password):
 def main():
     """Initialize the MCP server and register all tools"""
 
-    # Initialize Garmin client
-    garmin_client = init_api(email, password)
-    if not garmin_client:
-        print("Failed to initialize Garmin Connect client. Exiting.", file=sys.stderr)
-        return
+    # Log in on a background thread so the MCP handshake (initialize/list_tools) is
+    # answered immediately instead of waiting on Garmin - tool calls wait for it.
+    garmin_client = _LazyGarminClient()
 
-    print("Garmin Connect client initialized successfully.", file=sys.stderr)
+    def _login_worker():
+        try:
+            client = init_api(email, password)
+            if client:
+                print("Garmin Connect client initialized successfully.", file=sys.stderr)
+                garmin_client._finish(client)
+            else:
+                print("Failed to initialize Garmin Connect client.", file=sys.stderr)
+                garmin_client._finish(
+                    None,
+                    "Garmin login failed (no valid tokens in "
+                    f"'{tokenstore}') - run 'garmin-mcp-auth' in a terminal, then restart.",
+                )
+        except Exception as e:
+            garmin_client._finish(None, f"Garmin login failed: {e}")
+
+    threading.Thread(target=_login_worker, name="garmin-login", daemon=True).start()
 
     # Configure required modules with the Garmin client
     activity_management.configure(garmin_client)
