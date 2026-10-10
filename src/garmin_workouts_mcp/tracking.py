@@ -206,7 +206,8 @@ def register_tools(app):
         the last 28 days, negative = losing; null when there are <2 weigh-ins
         spanning at least 5 days), change since the first weigh-in in range, and
         days since the last weigh-in. With weekly weigh-ins the slope needs ~3+
-        weeks of data to mean much.
+        weeks of data to mean much. Record-keeping and trend analysis only - not
+        medical advice.
 
         Args:
             start_date: YYYY-MM-DD (default: 56 days before end_date)
@@ -463,7 +464,9 @@ def register_tools(app):
         toward the weekly goal). Hydration: intake logged (in the app or via
         log_hydration), the daily goal, Garmin's sweat-loss estimate from the day's
         workouts, and the base goal (Garmin adds the sweat-loss estimate on top of
-        a base goal to get the daily goal).
+        a base goal to get the daily goal). Record-keeping and trend analysis only -
+        not medical or dietary advice; questions about nutrition or deficiencies
+        belong with a doctor / lab test.
 
         Args:
             cdate: YYYY-MM-DD (default: today; today's totals are partial)
