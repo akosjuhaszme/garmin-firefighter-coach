@@ -46,6 +46,14 @@ If the MCP client reports the server "connection timed out after 30000ms" and ru
 
 If a client interrupts a `schedule_workouts` call mid-flight, the server-side work can still complete - leaving real orphaned workouts in the Garmin workout library/calendar - while the client-side interrupt produces a "response for unknown message ID" error that poisons the stdio connection for the rest of that session (it won't recover without a restart). This isn't fixable from this server's side (it's an artifact of interrupting a long-running tool call over stdio), but it's worth knowing: after any interrupted bulk call, check `get_workouts`/`get_scheduled_workouts` for orphans before doing anything else, and expect to need a session restart.
 
+### Calendar, zones and exercise names: things verified live
+
+- **Two calendar views that disagree.** `get_scheduled_workouts` used to read Garmin's GraphQL schedule summary, which is eventually consistent: it can leave out an entry that was just scheduled and keep listing one that was removed long ago (checked live: a removed entry was still listed more than half an hour later). It now reads the real-time calendar (`calendar-service`) and uses the GraphQL data only to add the completed flag, linked activity and training-plan details. Entries only the GraphQL view still knows about are dropped as stale (reported as `ignored_stale_entries`) unless they are training-plan, rest or race entries.
+- **Scheduling the same workout twice on a day creates two entries**, it does not overwrite. `schedule_workout` now returns the new `schedule_id` and warns when the same workout is already on that day. `unschedule_workout(schedule_id)` removes just one calendar entry and leaves the workout in the library (`delete_workout` removes the library template and every entry that uses it).
+- **Heart-rate zone drift.** `get_activity_hr_in_timezones` returns each zone's `zoneLowBoundary` as it was for *that activity*, so comparing runs shows when Garmin moved your zones (for instance after a lactate-threshold update). A workout step that targets a zone *number* silently follows the new boundaries; a step with explicit bpm values does not. `get_athlete_profile` returns the zones currently in force.
+- **Exercise names in the app depend on the app language.** Observed in the Hungarian app (the step description is shown under the name, so put the name you want in the description): `FLYE` -> "Tárogatás"; `SHRUG` / `SCAPULAR_RETRACTION` -> "Emelés és kitartás V-alakban" (misleading); `LATERAL_RAISE` / `SEATED_REAR_LATERAL_RAISE` -> "Oldalemelés ülő pozícióban"; `ROW` / `FACE_PULL` -> "Archoz húzás"; `SHOULDER_STABILITY` / `BAND_EXTERNAL_ROTATION` -> "Kifelé forgatás gumiszalaggal". A `FLYE` step without `exerciseName` is what the Hungarian app shows as "Tárogatás".
+- **Dropped connections.** Garmin occasionally drops a connection (`RemoteDisconnected`, seen right after a restart). Read-only client calls (`get_*`, `count_*`, `download_*`) are retried once automatically; writes never are, because a retried upload or schedule could create a duplicate.
+
 ### Setup for the weather and route tools
 
 ```
@@ -128,7 +136,7 @@ This MCP server implements tools for the following domains:
   - 🏷️ `get_activity_types` — list all activity types supported by Garmin Connect
   - 🔢 `count_activities` — get the total number of activities in the account
 
-- ✅ **Workouts** — 11 read/write tools 💪
+- ✅ **Workouts** — 12 read/write tools 💪
   - 📋 `get_workouts` — list all workouts in the Garmin Connect workout library
   - 🔍 `get_workout_by_id` — get full details for a workout by numeric ID or UUID
   - ⬆️ `upload_workout` — create a new workout from structured JSON data
@@ -137,7 +145,8 @@ This MCP server implements tools for the following domains:
   - 🗑️ `delete_workouts` — permanently delete multiple workouts from the library in a single call
   - 📅 `schedule_workout` — schedule a workout to a specific calendar date
   - 📅 `schedule_workouts` — schedule multiple workouts (or upload-and-schedule inline) in a single call
-  - 📅 `get_scheduled_workouts` — list workouts scheduled on the calendar between two dates
+  - 📅 `get_scheduled_workouts` — list workouts scheduled on the calendar between two dates (real-time calendar, each entry has a `schedule_id`)
+  - 🧹 `unschedule_workout` — remove one calendar entry by `schedule_id` without deleting the workout from the library
   - 🗓️ `get_training_plan_workouts` — get Garmin Coach / training plan workouts for a given week
   - ⬇️ `download_workout` — download a workout in FIT file format
 

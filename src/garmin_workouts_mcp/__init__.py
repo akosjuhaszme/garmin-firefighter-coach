@@ -73,7 +73,33 @@ class _LazyGarminClient:
                 self._error
                 or "Garmin login failed - run 'garmin-mcp-auth' to re-authenticate."
             )
-        return getattr(self._client, name)
+        attr = getattr(self._client, name)
+        if callable(attr) and name.startswith(_RETRY_READ_PREFIXES):
+            return _retry_once_on_dropped_connection(attr)
+        return attr
+
+
+# Read-only client methods get one retry when Garmin drops the connection
+# (RemoteDisconnected right after a restart or on an idle pooled connection).
+# Writes are never retried automatically: a retried upload or schedule could
+# create a duplicate if the first attempt actually went through.
+_RETRY_READ_PREFIXES = ("get_", "count_", "download_")
+_DROPPED_CONNECTION_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.ChunkedEncodingError,
+)
+
+
+def _retry_once_on_dropped_connection(method):
+    def call(*args, **kwargs):
+        try:
+            return method(*args, **kwargs)
+        except _DROPPED_CONNECTION_ERRORS:
+            return method(*args, **kwargs)
+
+    call.__name__ = getattr(method, "__name__", "call")
+    call.__doc__ = getattr(method, "__doc__", None)
+    return call
 
 
 def _persist_refreshed_tokens(garmin, tokenstore_path):

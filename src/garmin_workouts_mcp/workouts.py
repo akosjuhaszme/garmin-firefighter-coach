@@ -5,6 +5,8 @@ import json
 import datetime
 from typing import Any, Dict, List, Optional, Union
 
+from garth.exc import GarthHTTPError
+
 # The garmin_client will be set by the main file
 garmin_client = None
 
@@ -196,6 +198,7 @@ def _curate_scheduled_workout(scheduled: dict) -> dict:
     is_completed = scheduled.get('associatedActivityId') is not None
 
     summary = {
+        "schedule_id": scheduled.get('scheduledWorkoutId'),
         "date": scheduled.get('scheduleDate'),
         "workout_uuid": scheduled.get('workoutUuid'),
         "workout_id": scheduled.get('workoutId'),
@@ -232,6 +235,48 @@ def _curate_scheduled_workout(scheduled: dict) -> dict:
 
     # Remove None values
     return {k: v for k, v in summary.items() if v is not None}
+
+
+def _schedule_id_from(response) -> Optional[int]:
+    """workoutScheduleId from a workout-service/schedule POST response."""
+    try:
+        return response.json().get("workoutScheduleId")
+    except Exception:
+        return None
+
+
+def _calendar_workouts(start_date: str, end_date: str) -> List[dict]:
+    """Workout entries on the Garmin calendar between two dates (raw items).
+
+    Read from calendar-service, which is real time. The GraphQL summary used
+    by older versions of get_scheduled_workouts is eventually consistent: it can
+    miss an entry that was just scheduled and keep listing one that was just
+    removed (verified live), so it is only used to enrich these items.
+    """
+    start = datetime.date.fromisoformat(start_date)
+    end = datetime.date.fromisoformat(end_date)
+    if end < start:
+        raise ValueError("end_date must not be before start_date")
+    if (end - start).days > 366:
+        raise ValueError("date range is limited to 366 days")
+
+    items: Dict[Any, dict] = {}
+    year, month = start.year, start.month
+    while (year, month) <= (end.year, end.month):
+        # calendar-service months are zero-based; a month view also contains a
+        # few days of the neighbouring months, hence the date filter and the
+        # de-duplication by id.
+        data = garmin_client.garth.get(
+            "connectapi", f"calendar-service/year/{year}/month/{month - 1}"
+        ).json()
+        for item in data.get("calendarItems", []):
+            day = item.get("date") or ""
+            if item.get("itemType") == "workout" and start_date <= day <= end_date:
+                items[item.get("id")] = item
+        month += 1
+        if month > 12:
+            year, month = year + 1, 1
+    return sorted(items.values(), key=lambda i: (i.get("date") or "", i.get("id") or 0))
 
 
 def register_tools(app):
@@ -585,37 +630,120 @@ def register_tools(app):
         """Get scheduled workouts between two dates with curated summary list
 
         Returns workouts that have been scheduled on the Garmin Connect calendar,
-        including their scheduled dates and completion status.
+        including their scheduled dates and completion status. Every entry has a
+        schedule_id (use it with unschedule_workout to remove just that calendar
+        entry). The list is built from the live calendar; Garmin's GraphQL
+        schedule summary lags behind (a new entry can be missing from it and a
+        removed one can still be listed), so it only adds details such as the
+        completed flag and the linked activity. The same workout scheduled twice
+        on one day shows up as two entries.
 
         Args:
             start_date: Start date in YYYY-MM-DD format
-            end_date: End date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format (range limited to 366 days)
         """
         try:
-            # Query for scheduled workouts using GraphQL
-            query = {
-                "query": f'query{{workoutScheduleSummariesScalar(startDate:"{start_date}", endDate:"{end_date}")}}'
-            }
-            result = garmin_client.query_garmin_graphql(query)
+            calendar_items = _calendar_workouts(start_date, end_date)
 
-            if not result or "data" not in result:
-                return "No scheduled workouts found or error querying data."
+            # Enrichment only: completion state, linked activity, plan info.
+            summaries = {}
+            try:
+                query = {
+                    "query": f'query{{workoutScheduleSummariesScalar(startDate:"{start_date}", endDate:"{end_date}")}}'
+                }
+                result = garmin_client.query_garmin_graphql(query)
+                for s in (result or {}).get("data", {}).get("workoutScheduleSummariesScalar", []) or []:
+                    summaries[s.get("scheduledWorkoutId")] = s
+            except Exception:
+                pass
 
-            scheduled = result.get("data", {}).get("workoutScheduleSummariesScalar", [])
+            entries = []
+            for item in calendar_items:
+                summary = summaries.pop(item.get("id"), None)
+                if summary:
+                    entries.append(_curate_scheduled_workout(summary))
+                else:
+                    entry = {
+                        "schedule_id": item.get("id"),
+                        "date": item.get("date"),
+                        "workout_id": item.get("workoutId"),
+                        "name": item.get("title"),
+                        "sport": item.get("sportTypeKey"),
+                    }
+                    entries.append({k: v for k, v in entry.items() if v is not None})
 
-            if not scheduled:
+            # Entries only the GraphQL view knows about: keep training-plan, rest
+            # and race days (not plain workout items on the calendar), drop the
+            # rest as stale leftovers of removed schedules.
+            stale = 0
+            for s in summaries.values():
+                if (s.get("tpPlanName") or s.get("trainingPlanId") or s.get("atpPlanId")
+                        or s.get("isRestDay") or s.get("race")):
+                    entries.append(_curate_scheduled_workout(s))
+                else:
+                    stale += 1
+
+            if not entries:
                 return f"No workouts scheduled between {start_date} and {end_date}."
 
-            # Curate the scheduled workout list
+            entries.sort(key=lambda e: (e.get("date") or "", e.get("schedule_id") or 0))
             curated = {
-                "count": len(scheduled),
+                "count": len(entries),
                 "date_range": {"start": start_date, "end": end_date},
-                "scheduled_workouts": [_curate_scheduled_workout(s) for s in scheduled]
+                "scheduled_workouts": entries,
             }
-
+            if stale:
+                curated["ignored_stale_entries"] = stale
             return json.dumps(curated, indent=2)
         except Exception as e:
             return f"Error retrieving scheduled workouts: {str(e)}"
+
+    @app.tool()
+    async def unschedule_workout(schedule_id: int) -> str:
+        """Remove ONE scheduled entry from the Garmin Connect calendar
+
+        Deletes only the calendar entry; the workout stays in the workout library
+        (delete_workout would remove the library template and every entry that
+        uses it). Get the schedule_id from get_scheduled_workouts or from the
+        result of schedule_workout. If the same workout is scheduled twice on one
+        day, removing one entry leaves the other.
+
+        Args:
+            schedule_id: The calendar entry's schedule_id (not the workout_id)
+        """
+        try:
+            response = garmin_client.garth.delete(
+                "connectapi", f"workout-service/schedule/{schedule_id}", api=True
+            )
+            if response.status_code in (200, 204):
+                return json.dumps({
+                    "status": "success",
+                    "schedule_id": schedule_id,
+                    "message": "Calendar entry removed; the workout is still in the library",
+                }, indent=2)
+            if response.status_code == 404:
+                return json.dumps({
+                    "status": "not_found",
+                    "schedule_id": schedule_id,
+                    "message": "No calendar entry with that schedule_id (already removed?)",
+                }, indent=2)
+            return json.dumps({
+                "status": "failed",
+                "schedule_id": schedule_id,
+                "http_status": response.status_code,
+            }, indent=2)
+        except GarthHTTPError as e:
+            # garth raises on every HTTP error status, 404 included
+            response = getattr(getattr(e, "error", None), "response", None)
+            if getattr(response, "status_code", None) == 404:
+                return json.dumps({
+                    "status": "not_found",
+                    "schedule_id": schedule_id,
+                    "message": "No calendar entry with that schedule_id (already removed?)",
+                }, indent=2)
+            return f"Error removing calendar entry: {str(e)}"
+        except Exception as e:
+            return f"Error removing calendar entry: {str(e)}"
 
     @app.tool()
     async def get_training_plan_workouts(calendar_date: str) -> str:
@@ -689,16 +817,35 @@ def register_tools(app):
             calendar_date: Date to schedule the workout in YYYY-MM-DD format
         """
         try:
+            # Scheduling the same workout twice on a day creates two entries
+            # (verified live), so look first and warn instead of doing it silently.
+            already = []
+            try:
+                already = [
+                    i for i in _calendar_workouts(calendar_date, calendar_date)
+                    if i.get("workoutId") == workout_id
+                ]
+            except Exception:
+                pass
+
             url = f"workout-service/schedule/{workout_id}"
             response = garmin_client.garth.post("connectapi", url, json={"date": calendar_date})
 
             if response.status_code == 200:
-                return json.dumps({
+                result = {
                     "status": "success",
                     "workout_id": workout_id,
+                    "schedule_id": _schedule_id_from(response),
                     "scheduled_date": calendar_date,
                     "message": f"Successfully scheduled workout {workout_id} for {calendar_date}"
-                }, indent=2)
+                }
+                if already:
+                    result["warning"] = (
+                        f"This workout was already scheduled on {calendar_date} "
+                        f"(schedule_id {already[0].get('id')}); there are now "
+                        f"{len(already) + 1} entries. Use unschedule_workout to remove one."
+                    )
+                return json.dumps(result, indent=2)
             else:
                 return json.dumps({
                     "status": "failed",
@@ -782,6 +929,7 @@ def register_tools(app):
                     entry = {
                         "status": "success",
                         "workout_id": workout_id,
+                        "schedule_id": _schedule_id_from(response),
                         "scheduled_date": calendar_date,
                         "message": f"Successfully scheduled workout {workout_id} for {calendar_date}"
                     }
