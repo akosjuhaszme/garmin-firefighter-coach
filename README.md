@@ -61,6 +61,19 @@ Garmin has no free food log, but it can show calories eaten if a diary app feeds
 1. **Calories into Garmin (no code needed).** Link your MyFitnessPal account in Garmin Connect (in the app's settings, under connected apps) and log food in MyFitnessPal. `get_daily_summary` then shows `consumed_kcal` and `intake_source_connected: true` (verified live: one logged item arrived within hours). Only the total calories reach Garmin, no macros.
 2. **Meals and macros (optional, separate server).** MyFitnessPal has no public API for individuals (its partner API is closed to new applicants), so reading the diary means reverse-engineering the website with a logged-in browser session cookie. The community project [myfitnesspal-mcp](https://github.com/Mason-Levyy/myfitnesspal-mcp) does that, and [mfp-readonly-mcp](https://github.com/akosjuhaszme/mfp-readonly-mcp) is a fork of it with every write/delete tool removed (the default branch is `readonly`); both are unofficial and can break whenever the site changes. A free account's diary exposes, per food entry and per day, calories, protein, carbs, fat, sodium and sugar, plus the day's goals; fibre, saturated fat, cholesterol and vitamins were not in the data. With "Exercise Calories" on, the day's goal is the base goal plus calories burned in synced exercise.
 3. **Treat the cookie like a password.** The `__Secure-next-auth.session-token` cookie gives full access to the account (it can log and delete entries) and lasts about 30 days. Enter it only at a hidden prompt on your own machine, never in a chat, an issue or a file in a repo. The upstream server has no read-only mode (7 of its 18 tools write or delete diary data), so the read-only fork is the safer thing to hand to an assistant.
+5. **Run both servers side by side.** Register this server and the read-only MyFitnessPal one in the same MCP config, for example:
+
+   ```json
+   {
+     "mcpServers": {
+       "garmin-workouts": { "command": "C:\path\to\garmin-workouts-mcp\.venv\Scripts\garmin-workouts-mcp.exe", "args": [] },
+       "mfp-readonly":    { "command": "C:\path\to\mfp-readonly-mcp\.venv\Scripts\myfitnesspal-mcp.exe", "args": [] }
+     }
+   }
+   ```
+
+   With the two accounts linked, data flows both ways (checked on a real account): calories eaten, and a weight logged in MyFitnessPal, reach Garmin (`consumed_kcal` in `get_daily_summary`; the weigh-in is tagged with the source `MFP`); synced Garmin workouts appear in MyFitnessPal's exercise diary and, with "Exercise Calories" on, raise that day's calorie goal.
+
 4. **Sharing the diary publicly does not help.** Making the diary Public or "Locked with a key" does not give scripts access: anonymous requests get a bot-protection challenge (HTTP 403, verified live), and a public diary would only expose your food log. Keep it Private.
 
 ### Setup for the weather and route tools
