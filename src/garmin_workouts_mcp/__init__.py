@@ -314,7 +314,17 @@ def main():
     tracking.configure(garmin_client)
 
     # Create the MCP app
-    app = FastMCP("Garmin Connect v1.0")
+    app = FastMCP(
+        "Garmin Connect v1.0",
+        instructions=(
+            "Garmin Connect training, recovery and body data. If a companion "
+            "'mfp-readonly' server (tools named fitness_*) is also connected, it holds "
+            "the user's MyFitnessPal food diary: use it for meals and macros. Garmin's "
+            "own consumed_kcal (get_daily_summary) is only the calorie total of that "
+            "same diary, and workouts recorded here reach MyFitnessPal's exercise "
+            "diary. Combine both for questions about training, food and weight."
+        ),
+    )
 
     # Register tools from required modules
     app = activity_management.register_tools(app)

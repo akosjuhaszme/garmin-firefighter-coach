@@ -459,7 +459,9 @@ def register_tools(app):
         is null (and listed under not_available) unless something feeds it: a
         calorie-intake service such as MyFitnessPal linked to Garmin Connect, or
         the paid Garmin Connect+ Nutrition log (whether that populates this field
-        is unverified). Macros (protein/carbs/fat) are not part of this summary.
+        is unverified). Macros (protein/carbs/fat) are not part of this summary; for
+        meals and macros use the companion mfp-readonly server (fitness_get_day)
+        when it is connected.
         Intensity minutes are moderate + vigorous (Garmin counts vigorous double
         toward the weekly goal). Hydration: intake logged (in the app or via
         log_hydration), the daily goal, Garmin's sweat-loss estimate from the day's
