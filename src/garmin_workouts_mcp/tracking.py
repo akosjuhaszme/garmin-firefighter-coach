@@ -504,6 +504,11 @@ def register_tools(app):
                 hyd = garmin_client.get_hydration_data(day.isoformat()) or {}
                 intake, goal = hyd.get("valueInML"), hyd.get("goalInML")
                 sweat = hyd.get("sweatLossInML")
+                if goal is not None:
+                    # Garmin returns null (not 0) for a day with nothing logged and
+                    # no activity yet; show that as 0 instead of dropping the fields.
+                    intake = intake or 0.0
+                    sweat = sweat or 0.0
                 out["hydration"] = _drop_none({
                     "intake_ml": intake,
                     "goal_ml": goal,
