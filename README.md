@@ -72,7 +72,7 @@ Garmin has no free food log, but it can show calories eaten if a diary app feeds
    }
    ```
 
-   With the two accounts linked, data flows both ways (checked on a real account): calories eaten, and a weight logged in MyFitnessPal, reach Garmin (`consumed_kcal` in `get_daily_summary`; the weigh-in is tagged with the source `MFP`); synced Garmin workouts appear in MyFitnessPal's exercise diary and, with "Exercise Calories" on, raise that day's calorie goal.
+   With the two accounts linked, data flows both ways (checked on a real account): calories eaten, and a weight logged in MyFitnessPal, reach Garmin (`consumed_kcal` in `get_daily_summary`; the weigh-in is tagged with the source `MFP`); synced Garmin workouts appear in MyFitnessPal's exercise diary and, with "Exercise Calories" on, raise that day's calorie goal. Not everything is synced: **water logged in MyFitnessPal does not reach Garmin's hydration tracker** (checked live: 1000 ml in MyFitnessPal, empty intake in Garmin), so hydration has to be logged in Garmin (`log_hydration`) or mirrored by hand. Garmin's `net_goal_kcal` followed the MyFitnessPal calorie goal when that was changed. Garmin's hydration base goal is a user setting and can change from one day to the next, so read `base_goal_ml` instead of assuming a value.
 
 4. **Sharing the diary publicly does not help.** Making the diary Public or "Locked with a key" does not give scripts access: anonymous requests get a bot-protection challenge (HTTP 403, verified live), and a public diary would only expose your food log. Keep it Private.
 
