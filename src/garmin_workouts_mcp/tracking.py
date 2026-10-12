@@ -153,6 +153,44 @@ def _slope_kg_per_week(points: list):
     return round(slope_per_day * 7, 2)
 
 
+def _current_goals(goals) -> dict:
+    """Goals still in force (no end date) from goal-service/goal/user, curated.
+
+    The endpoint lists every goal the account ever had, with the source in
+    userGoalCategory (MANUAL = set in Garmin Connect, MYFITNESSPAL = pushed by a
+    linked MyFitnessPal account, MY_AUTO = Garmin's own suggestion). Weight goals
+    are stored in grams. If several goals of one type are open, the latest start
+    date wins.
+    """
+    latest = {}
+    for goal in goals if isinstance(goals, list) else []:
+        if goal.get("endDate"):
+            continue
+        kind = goal.get("userGoalType")
+        if kind not in latest or (goal.get("startDate") or "") > (latest[kind].get("startDate") or ""):
+            latest[kind] = goal
+
+    out = {}
+    if "WEIGHT_GRAMS" in latest:
+        g = latest["WEIGHT_GRAMS"]
+        out["weight_goal_kg"] = round(g["goalValue"] / 1000.0, 1)
+        out["weight_goal_since"] = g.get("startDate")
+    if "NET_CALORIES" in latest:
+        g = latest["NET_CALORIES"]
+        out["calorie_goal_kcal"] = g.get("goalValue")
+        out["calorie_goal_source"] = g.get("userGoalCategory")
+    if "HYDRATION" in latest:
+        g = latest["HYDRATION"]
+        out["hydration_base_goal_ml"] = g.get("goalValue")
+        out["hydration_goal_source"] = g.get("userGoalCategory")
+        out["hydration_goal_since"] = g.get("startDate")
+    if "STEPS" in latest:
+        g = latest["STEPS"]
+        out["steps_goal"] = g.get("goalValue")
+        out["steps_goal_source"] = g.get("userGoalCategory")
+    return out
+
+
 def _parse_when(taken_at: str) -> datetime:
     if not taken_at:
         return datetime.now().replace(microsecond=0)
@@ -356,7 +394,10 @@ def register_tools(app):
         (running/cycling), max HR, lactate-threshold HR and speed, and the heart-rate
         zone boundaries Garmin currently uses (per sport entry, zone floors/ceilings
         in bpm, with the method - e.g. LACTATE_THRESHOLD vs %MAX_HR), plus the
-        training-day preferences. Read-only.
+        training-day preferences and the goals currently in force (under "goals":
+        weight goal in kg and kilograms still to go, calorie goal with its source,
+        hydration base goal, steps goal). Read-only; changing a goal is not
+        supported by this server (the write endpoint is unverified).
 
         Caveats: the lactate threshold speed is returned as the raw Garmin number
         (its unit is undocumented); the *_unverified pace is computed assuming the
@@ -442,6 +483,16 @@ def register_tools(app):
                 }))
             except Exception as e:
                 errors.append(f"settings: {e}")
+
+            try:
+                goals = _current_goals(garmin_client.garth.get("connectapi", "goal-service/goal/user").json())
+                weight_goal = goals.get("weight_goal_kg")
+                if weight_goal is not None and out.get("profile_weight_kg") is not None:
+                    goals["weight_to_goal_kg"] = round(out["profile_weight_kg"] - weight_goal, 1)
+                if goals:
+                    out["goals"] = goals
+            except Exception as e:
+                errors.append(f"goals: {e}")
 
             if errors:
                 out["partial_errors"] = errors
