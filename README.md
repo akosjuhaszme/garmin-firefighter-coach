@@ -139,6 +139,10 @@ Once connected in Claude Desktop/VS Code Copilot, you can ask questions like:
 - "Compare my pace and HR across my last 5 runs — am I getting fitter?"
 - "I have a race in 6 weeks — build me a progressive weekly workout schedule and add each session to my calendar"
 
+### Ready-made prompts and a first-run routine
+
+The server ships nine coaching prompts as MCP prompts (clients that support them list them by name; Claude Code shows them as slash commands such as `/mcp__garmin-workouts__first_run_setup`). Start with **`first_run_setup`** after installing: it checks the connections, reads your history, asks only what Garmin cannot know and proposes a first week, without writing anything before you confirm. The others: `plan_training_week`, `weekly_review`, `recovery_check`, `nutrition_check`, `race_prep`, `progression_rules`, `strength_session`, `weak_points`. They hold no personal data and always ask for your yes before uploading or scheduling. Full texts, copy-paste versions and a suggested weekly rhythm: [docs/PROMPTS.md](docs/PROMPTS.md), in Hungarian [docs/PROMPTS.hu.md](docs/PROMPTS.hu.md).
+
 ### Tool Coverage
 
 This MCP server implements tools for the following domains:
