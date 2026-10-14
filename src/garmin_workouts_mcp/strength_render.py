@@ -5,7 +5,12 @@ Three states like Garmin's own muscle map: primary (red), secondary (yellow) and
 not targeted (grey), on a front and a back figure, with the numbers underneath as a
 grouped list. The colours follow the viewer's light/dark setting (theme="auto");
 hover titles name every muscle.
+
+The anatomical shapes are in data/body_parts.json, taken from
+react-native-body-highlighter (MIT, see data/BODY_PARTS_NOTICE.txt).
 """
+import json
+from pathlib import Path
 from typing import Dict, List
 from xml.sax.saxutils import escape
 
@@ -15,62 +20,28 @@ SECONDARY = "#f2b705"
 THEMES = {
     "light": {
         "bg": "#fcfcfb", "ink": "#0b0b0b", "ink2": "#52514e", "muted": "#898781", "line": "#e1e0d9",
-        "body": "#f3f2ee", "outline": "#b4b3ab", "nt": "#d4d3cc", "gap": "#fcfcfb",
+        "nt": "#d4d3cc", "gap": "#fcfcfb",
     },
     "dark": {
         "bg": "#0e0e0f", "ink": "#f4f4f5", "ink2": "#c3c2b7", "muted": "#8d8d93", "line": "#2c2c2e",
-        "body": "#19191b", "outline": "#6b6b70", "nt": "#3a3a3e", "gap": "#0e0e0f",
+        "nt": "#3a3a3e", "gap": "#0e0e0f",
     },
 }
 
 FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif"
 
-# Smooth outline of one half of the body (front and back share it); the other half is mirrored.
-_OUTLINE = (
-    "M100 56 L92 56 Q91 66 77 70 Q58 73 52 88 Q46 100 44 122 Q40 150 36 162 "
-    "Q30 192 26 222 L24 240 Q29 248 35 240 L41 222 Q47 194 55 164 L60 120 "
-    "Q62 134 66 142 Q68 172 72 198 Q64 216 66 238 Q60 282 66 312 "
-    "Q64 340 68 368 L66 394 Q64 406 71 410 L92 410 Q94 400 94 388 "
-    "Q94 360 92 340 Q96 322 96 312 Q98 280 99 250 L100 242 Z"
-)
+_DATA = json.loads((Path(__file__).parent / "data" / "body_parts.json").read_text(encoding="utf-8"))
 
-# Left-half muscle shapes (mirrored for the right half), anatomically more detailed.
-_FRONT: Dict[str, List[str]] = {
-    "traps": ['<path d="M92 58 Q86 64 76 70 Q68 73 62 79 Q80 77 93 67 Z"/>'],
-    "shoulders": ['<path d="M62 79 Q50 81 48 96 Q50 109 58 109 Q66 101 69 89 Q69 81 62 79 Z"/>'],
-    "chest": ['<path d="M98 90 Q82 84 69 92 Q62 106 70 121 Q86 129 98 123 Z"/>'],
-    "biceps": ['<path d="M48 111 Q42 127 46 145 Q52 149 58 141 Q60 125 56 109 Z"/>'],
-    "forearms": ['<path d="M44 149 Q36 171 31 199 Q36 205 42 199 Q52 173 54 149 Z"/>'],
-    "abs": [
-        '<rect x="88" y="127" width="10" height="14" rx="4"/>',
-        '<rect x="88" y="144" width="10" height="14" rx="4"/>',
-        '<rect x="88" y="161" width="10" height="14" rx="4"/>',
-        '<rect x="88" y="178" width="10" height="15" rx="4"/>',
-    ],
-    "obliques": ['<path d="M84 128 Q74 138 72 160 Q72 182 78 198 L84 194 Q80 168 84 128 Z"/>'],
-    "hip_stabilizers": [
-        '<path d="M78 200 Q67 208 66 226 Q72 240 82 232 Q88 218 84 204 Z"/>',
-        '<path d="M92 246 Q88 264 90 288 Q96 288 98 268 Q99 254 96 246 Z"/>',
-    ],
-    "quads": [
-        '<path d="M68 238 Q61 272 68 306 Q75 313 83 307 Q83 272 81 240 Z"/>',
-        '<path d="M83 242 Q85 274 85 308 Q92 311 94 301 Q96 272 92 248 Z"/>',
-    ],
-    "calves": ['<path d="M70 322 Q66 350 72 380 Q82 384 88 378 Q92 350 90 324 Q80 316 70 322 Z"/>'],
+# our muscle group -> shape names in the data file
+_SLUGS = {
+    "chest": ["chest"], "shoulders": ["deltoids"], "biceps": ["biceps"], "triceps": ["triceps"],
+    "forearms": ["forearm"], "traps": ["trapezius"], "lats": ["upper-back"], "lower_back": ["lower-back"],
+    "abs": ["abs"], "obliques": ["obliques"], "glutes": ["gluteal"], "hip_stabilizers": ["adductors"],
+    "quads": ["quadriceps"], "hamstrings": ["hamstring"], "calves": ["calves"],
 }
-_BACK: Dict[str, List[str]] = {
-    "traps": ['<path d="M100 58 L88 62 L72 74 L66 82 Q80 90 90 106 L100 124 Z"/>'],
-    "shoulders": ['<path d="M62 79 Q50 81 48 96 Q50 109 58 109 Q66 101 69 89 Q69 81 62 79 Z"/>'],
-    "triceps": ['<path d="M48 111 Q42 127 46 147 Q52 151 58 143 Q60 125 56 109 Z"/>'],
-    "forearms": ['<path d="M44 151 Q36 173 31 199 Q36 205 42 199 Q52 175 54 151 Z"/>'],
-    "lats": ['<path d="M98 126 L84 106 Q72 108 68 122 Q66 148 76 168 L98 178 Z"/>'],
-    "lower_back": ['<path d="M98 154 L88 158 Q86 180 90 200 L98 200 Z"/>'],
-    "glutes": ['<path d="M98 200 Q84 198 72 208 Q66 224 74 240 Q88 246 98 234 Z"/>'],
-    "hip_stabilizers": ['<path d="M70 204 Q63 212 65 226 Q72 222 77 212 Z"/>'],
-    "hamstrings": ['<path d="M72 248 Q66 280 72 306 Q82 312 92 306 Q98 280 96 250 Q84 244 72 248 Z"/>'],
-    "calves": ['<path d="M70 322 Q64 350 70 374 Q80 382 90 374 Q94 348 90 322 Q80 316 70 322 Z"/>'],
-}
-_ALWAYS_SHOWN = ("obliques", "abs")  # shapes that exist on the front only; others as listed per view
+_MUSCLE_OF = {slug: key for key, slugs in _SLUGS.items() for slug in slugs}
+# drawn in the neutral colour, never coloured ("hair" is left out)
+_NEUTRAL = {"head", "neck", "hands", "feet", "knees", "ankles", "tibialis"}
 
 
 def _state(m: dict) -> str:
@@ -89,26 +60,30 @@ def _palette_css(theme: str) -> str:
     def block(t: dict) -> str:
         return (
             f".bg{{fill:{t['bg']}}} .ink{{fill:{t['ink']}}} .ink2{{fill:{t['ink2']}}} .muted{{fill:{t['muted']}}} "
-            f".line{{stroke:{t['line']}}} .body{{fill:{t['body']};stroke:{t['outline']}}} .nt{{fill:{t['nt']}}} "
-            f".gap{{stroke:{t['gap']}}} .dot-nt{{fill:{t['nt']}}} .pri{{fill:{PRIMARY}}} .sec{{fill:{SECONDARY}}}"
+            f".line{{stroke:{t['line']}}} .nt{{fill:{t['nt']}}} .gap{{stroke:{t['gap']}}} "
+            f".dot-nt{{fill:{t['nt']}}} .pri{{fill:{PRIMARY}}} .sec{{fill:{SECONDARY}}}"
         )
     if theme == "auto":
         return block(THEMES["light"]) + "\n@media (prefers-color-scheme: dark){" + block(THEMES["dark"]) + "}"
     return block(THEMES[theme])
 
 
-def _figure(x: float, y: float, scale: float, shapes: Dict[str, List[str]], by_key: Dict[str, dict], caption: str) -> str:
-    out = [f'<g transform="translate({x} {y}) scale({scale})">',
-           f'<text x="100" y="-10" text-anchor="middle" class="muted cap">{caption}</text>',
-           '<circle cx="100" cy="30" r="17" class="body" stroke-width="1"/>',
-           f'<path d="{_OUTLINE}" class="body" stroke-width="1"/>',
-           f'<path d="{_OUTLINE}" class="body" stroke-width="1" transform="translate(200 0) scale(-1 1)"/>']
-    for key, parts in shapes.items():
+def _figure(view: str, x: float, y: float, height: float, by_key: Dict[str, dict], caption: str) -> str:
+    x0, y0, w, h = _DATA[view]["viewBox"]
+    scale = height / h
+    stroke = 1.6 / scale  # about 1.6px on screen
+    parts = _DATA[view]["parts"]
+    out = [f'<text x="{x + w * scale / 2:.1f}" y="{y - 14:.1f}" text-anchor="middle" class="muted cap">{caption}</text>',
+           f'<g transform="translate({x} {y}) scale({scale:.5f}) translate({-x0} {-y0})" stroke-width="{stroke:.2f}" stroke-linejoin="round">']
+    for slug, paths in parts.items():  # neutral parts first so muscles sit on top
+        if slug in _NEUTRAL:
+            out.append(f'<g class="nt gap">{"".join(f"<path d=\"{d}\"/>" for d in paths)}</g>')
+    for slug, paths in parts.items():
+        key = _MUSCLE_OF.get(slug)
+        if key is None:
+            continue
         m = by_key[key]
-        cls = _state(m)
-        title = f"<title>{escape(_tip(m))}</title>"
-        for mirror in ("", ' transform="translate(200 0) scale(-1 1)"'):
-            out.append(f'<g class="{cls} gap" stroke-width="1.6" stroke-linejoin="round"{mirror}>{title}{"".join(parts)}</g>')
+        out.append(f'<g class="{_state(m)} gap"><title>{escape(_tip(m))}</title>{"".join(f"<path d=\"{d}\"/>" for d in paths)}</g>')
     out.append("</g>")
     return "\n".join(out)
 
@@ -130,10 +105,12 @@ def render_svg(result: dict, theme: str = "auto") -> str:
     ]
 
     W = 640
-    fig_scale = 1.12
-    fig_top = 112
-    fig_h = int(420 * fig_scale)
-    legend_y = fig_top + fig_h + 30
+    fig_h = 520
+    fig_top = 118
+    fw = {v: _DATA[v]["viewBox"][2] * fig_h / _DATA[v]["viewBox"][3] for v in ("front", "back")}
+    gap = 36
+    left = (W - fw["front"] - fw["back"] - gap) / 2
+    legend_y = fig_top + fig_h + 32
     parts = []
     y = legend_y + 52
     for title, dot, items in groups:
@@ -171,8 +148,8 @@ def render_svg(result: dict, theme: str = "auto") -> str:
 <rect width="{W}" height="{height}" class="bg"/>
 <text x="32" y="42" class="ink h1">Muscle map</text>
 <text x="32" y="64" class="ink2 h2">{escape(when)} - {n_act} strength workout{'s' if n_act != 1 else ''}</text>
-{_figure(48, fig_top, fig_scale, _FRONT, by_key, "FRONT")}
-{_figure(W - 48 - 200 * fig_scale, fig_top, fig_scale, _BACK, by_key, "BACK")}
+{_figure("front", left, fig_top, fig_h, by_key, "FRONT")}
+{_figure("back", left + fw["front"] + gap, fig_top, fig_h, by_key, "BACK")}
 {legend}
 <line x1="32" y1="{legend_y + 24}" x2="{W - 32}" y2="{legend_y + 24}" class="line" stroke-width="1"/>
 {''.join(parts)}
