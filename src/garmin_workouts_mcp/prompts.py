@@ -217,7 +217,7 @@ You are setting up a personal training and recovery coach for this user. Work th
         return _with_rules(f"""
 Plan my training week starting {week_start or 'next Monday'}. Extra constraints for this week: {constraints or 'none'}.
 
-1. Read what happened: last 4 weeks of activities and load, get_training_readiness, get_hrv_status, sleep and resting heart rate trend, get_scheduled_workouts for the target week, get_calendar_events for races, and get_weather_forecast for the days outdoor sessions are likely.
+1. Read what happened: last 4 weeks of activities and load, get_training_readiness, get_hrv_status, sleep and resting heart rate trend, get_scheduled_workouts for the target week, get_calendar_events for races, and get_weather_forecast for the days outdoor sessions are likely. Only if I have asked for cycle-aware planning, also call get_cycle_info and use the phase and my own reports of how I feel as one input among the others, never as a rule; ask me how I feel, and suggest a doctor if periods are missing or very irregular.
 2. Decide the week's purpose in one sentence (build, hold, deload, return from a break) and justify it from the data.
 3. Propose the week as a table: day, session, duration or distance, intensity as heart-rate zones, purpose. Keep at least one full rest day and respect my fixed days. Avoid stacking hard sessions.
 4. Flag risks (weather, a hard session close to a race, poor recovery) and what you would change if recovery is worse on the day.

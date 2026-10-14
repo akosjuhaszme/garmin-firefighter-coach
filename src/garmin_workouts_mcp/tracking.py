@@ -191,6 +191,38 @@ def _current_goals(goals) -> dict:
     return out
 
 
+_CYCLE_KEYS = ("phase", "dayincycle", "cycleday", "daysincycle", "periodlength", "cyclelength",
+               "predicted", "startdate", "enddate", "fertile", "ovulation", "flow")
+
+
+def _scalars(obj, depth: int = 0, limit: int = 40) -> dict:
+    """Flatten a nested Garmin payload to its scalar fields (dotted keys), dropping
+    nulls and long free text, capped at `limit` entries."""
+    out = {}
+
+    def walk(value, prefix, level):
+        if len(out) >= limit or level > 4:
+            return
+        if isinstance(value, dict):
+            for key, inner in value.items():
+                walk(inner, f"{prefix}.{key}" if prefix else str(key), level + 1)
+        elif isinstance(value, list):
+            for i, inner in enumerate(value[:3]):
+                walk(inner, f"{prefix}[{i}]", level + 1)
+        elif value is not None and prefix:
+            if isinstance(value, str) and len(value) > 60:
+                return
+            out[prefix] = value
+
+    walk(obj, "", depth)
+    return out
+
+
+def _cycle_highlights(flat: dict) -> dict:
+    """Fields whose names look like phase / day in cycle / period or cycle length."""
+    return {k: v for k, v in flat.items() if any(w in k.lower() for w in _CYCLE_KEYS)}
+
+
 def _parse_when(taken_at: str) -> datetime:
     if not taken_at:
         return datetime.now().replace(microsecond=0)
@@ -636,6 +668,85 @@ def register_tools(app):
             }), indent=2)
         except Exception as e:
             return f"Error logging hydration: {e}"
+
+    @app.tool()
+    async def get_cycle_info(date: str = "", days_back: int = 90) -> str:
+        """Read menstrual-cycle tracking data from Garmin Connect (read-only, opt-in)
+
+        Sensitive health data: only call this when the user has asked for
+        cycle-aware planning, never unprompted, and never copy values into a public
+        place. Returns whether any tracking data exists, the day view for `date`
+        (default today: cycle day / phase and similar fields when present), the most
+        recent cycle summaries within `days_back` days (default 90), and the
+        dates with logged symptoms, ovulation or notes (dates only, no free text).
+
+        Caveats: built from the python-garminconnect endpoints
+        (periodichealth-service). It was checked against an account WITHOUT cycle
+        tracking (empty results are handled), but the field layout of a filled-in
+        cycle has not been seen, so fields are passed through as found and the
+        phase, day-in-cycle and period/cycle-length fields are lifted into
+        `highlights` by name. If a field looks wrong, trust the Garmin app.
+
+        How to use it for training: one input among others. Evidence for strict
+        phase-based programming is mixed and individual, so ask how the user feels
+        and let symptoms, sleep and recovery decide. Missing or very irregular
+        periods in someone who trains hard deserve a doctor's look. Record-keeping
+        and training planning only, not medical advice.
+
+        Args:
+            date: YYYY-MM-DD for the day view (default: today)
+            days_back: How far back to read cycle summaries (1-365, default 90)
+        """
+        try:
+            day = _parse_date(date, "date") if date else _today()
+            days_back = max(1, min(days_back, 365))
+            start = day - timedelta(days=days_back)
+
+            day_view = garmin_client.get_menstrual_data_for_date(day.isoformat())
+            calendar = garmin_client.get_menstrual_calendar_data(start.isoformat(), day.isoformat()) or {}
+            summaries = calendar.get("cycleSummaries") or []
+            symptom_days = calendar.get("loggedSymptomDays") or []
+            ovulation_days = calendar.get("loggedOvulationDays") or []
+            note_days = calendar.get("loggedNoteDays") or []
+
+            def as_dates(rows):
+                dates = []
+                for r in rows:
+                    if isinstance(r, str):
+                        value = r
+                    elif isinstance(r, dict):
+                        value = r.get("calendarDate") or r.get("date")
+                    else:
+                        value = None
+                    if value:
+                        dates.append(str(value)[:10])
+                return sorted(set(dates))
+
+            found = bool(day_view) or bool(summaries) or bool(symptom_days) or bool(ovulation_days) or bool(note_days)
+            out = {"date": day.isoformat(), "tracking_data_found": found}
+            if not found:
+                out["message"] = (
+                    "No cycle tracking data between " + start.isoformat() + " and " + day.isoformat()
+                    + " (cycle tracking is probably not enabled in Garmin Connect, or nothing was logged)."
+                )
+                return json.dumps(out, indent=2)
+
+            if day_view:
+                flat = _scalars(day_view)
+                out["day"] = flat
+                highlights = _cycle_highlights(flat)
+                if highlights:
+                    out["highlights"] = highlights
+            if summaries:
+                out["recent_cycles"] = [_scalars(row, limit=20) for row in summaries[-3:]]
+                out["cycles_in_window"] = len(summaries)
+            out["logged_symptom_days"] = as_dates(symptom_days)[-14:]
+            out["logged_ovulation_days"] = as_dates(ovulation_days)[-6:]
+            out["logged_note_days"] = len(as_dates(note_days))
+            out["note"] = "Sensitive data. Planning input only, not medical advice; see the tool description."
+            return json.dumps(out, indent=2, default=str)
+        except Exception as e:
+            return f"Error retrieving cycle data: {e}"
 
     # ---- 4. supplements (local log) -------------------------------------- #
 

@@ -50,7 +50,7 @@ Személyes edzői és regenerációs rendszert állítasz be nekem. Menj végig 
 ```text
 Tervezd meg az edzéshetemet, kezdés: [HÉT KEZDETE, pl. jövő hétfő]. Különleges kötöttségek ezen a héten: [KÖTÖTTSÉGEK vagy "nincs"].
 
-1. Olvasd ki, mi történt: az utolsó 4 hét edzései és terhelése, get_training_readiness, get_hrv_status, az alvás és a nyugalmi pulzus trendje, get_scheduled_workouts a célhétre, get_calendar_events a versenyekhez, get_weather_forecast a szabadtéri napokra.
+1. Olvasd ki, mi történt: az utolsó 4 hét edzései és terhelése, get_training_readiness, get_hrv_status, az alvás és a nyugalmi pulzus trendje, get_scheduled_workouts a célhétre, get_calendar_events a versenyekhez, get_weather_forecast a szabadtéri napokra. Csak ha kértem a ciklust is figyelembe vevő tervezést, hívd a get_cycle_info eszközt is, és a fázist meg a saját beszámolómat az egyik szempontként használd, soha nem szabályként; kérdezd meg, hogy érzem magam, és ha a menstruáció elmarad vagy nagyon szabálytalan, javasolj orvost.
 2. Egy mondatban döntsd el a hét célját (építés, szinten tartás, tehermentesítés, visszatérés szünet után), és indokold az adatokkal.
 3. Javasold a hetet táblázatban: nap, edzés, időtartam vagy távolság, intenzitás pulzuszónában, cél. Legyen legalább egy teljes pihenőnap, tartsd tiszteletben a fix napjaimat, és ne halmozz nehéz edzéseket.
 4. Jelezd a kockázatokat (időjárás, nehéz edzés a verseny közelében, rossz regeneráció), és mit változtatnál, ha aznap rosszabb a regenerációm.

@@ -307,6 +307,15 @@ def default_output_path(result: dict) -> Path:
 # tools
 # ----------------------------------------------------------------------------- #
 
+def _profile_sex() -> str:
+    """female when the Garmin profile says so, otherwise male (the default drawing)."""
+    try:
+        gender = ((garmin_client.get_user_profile() or {}).get("userData") or {}).get("gender") or ""
+    except Exception:
+        return "male"
+    return "female" if str(gender).upper() == "FEMALE" else "male"
+
+
 def _count_by(rows: List[dict], key: str) -> dict:
     counts: dict = {}
     for row in rows:
@@ -369,7 +378,7 @@ def register_tools(app):
             return f"Error analysing muscle work: {e}"
 
     @app.tool()
-    async def render_muscle_map(start_date: str = "", end_date: str = "", activity_id: str = "", path: str = "", theme: str = "auto") -> str:
+    async def render_muscle_map(start_date: str = "", end_date: str = "", activity_id: str = "", path: str = "", theme: str = "auto", body: str = "auto") -> str:
         """Draw a front/back body map of the muscles trained (SVG file)
 
         Same analysis as get_muscle_work, drawn like Garmin's own map: a front and
@@ -387,6 +396,8 @@ def register_tools(app):
             activity_id: Draw just this activity
             path: Optional output file path (.svg)
             theme: auto (follows the viewer's light/dark setting), light or dark
+            body: auto (the sex in the Garmin profile, male if unknown), male or female;
+                the female figure only changes the drawing, not the analysis
         """
         try:
             result = analyse(start_date, end_date, activity_id)
@@ -394,7 +405,8 @@ def register_tools(app):
                 return f'No strength workouts with recorded sets between {result["window"]["start"]} and {result["window"]["end"]}.'
             out = Path(path) if path else default_output_path(result)
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(render_svg(result, theme), encoding="utf-8")
+            sex = body if body in ("male", "female") else _profile_sex()
+            out.write_text(render_svg(result, theme, sex), encoding="utf-8")
             return json.dumps({
                 "status": "success", "file": str(out), "window": result["window"],
                 "worked": [m["label"] for m in result["muscles"] if m["status"] == "worked"],

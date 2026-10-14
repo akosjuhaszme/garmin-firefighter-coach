@@ -20,11 +20,11 @@ SECONDARY = "#f2b705"
 THEMES = {
     "light": {
         "bg": "#fcfcfb", "ink": "#0b0b0b", "ink2": "#52514e", "muted": "#898781", "line": "#e1e0d9",
-        "nt": "#d4d3cc", "gap": "#fcfcfb",
+        "nt": "#d4d3cc", "hair": "#a9a8a0", "gap": "#fcfcfb",
     },
     "dark": {
         "bg": "#0e0e0f", "ink": "#f4f4f5", "ink2": "#c3c2b7", "muted": "#8d8d93", "line": "#2c2c2e",
-        "nt": "#3a3a3e", "gap": "#0e0e0f",
+        "nt": "#3a3a3e", "hair": "#58585e", "gap": "#0e0e0f",
     },
 }
 
@@ -40,11 +40,11 @@ _SLUGS = {
     "quads": ["quadriceps"], "hamstrings": ["hamstring"], "calves": ["calves"],
 }
 _MUSCLE_OF = {slug: key for key, slugs in _SLUGS.items() for slug in slugs}
-# drawn in the neutral colour, never coloured. On the back view the head is the hair
-# silhouette: the data's back "head" shape has ears that read as horns.
+# drawn in the neutral colour, never coloured. Hair is drawn last in its own tone. The
+# male back "head" shape is left out: its ears read as horns under the hair.
 _NEUTRAL = {
     "front": {"head", "neck", "hands", "feet", "knees", "ankles", "tibialis"},
-    "back": {"hair", "neck", "hands", "feet", "ankles"},
+    "back": {"neck", "hands", "feet", "ankles"},
 }
 
 
@@ -65,18 +65,18 @@ def _palette_css(theme: str) -> str:
         return (
             f".bg{{fill:{t['bg']}}} .ink{{fill:{t['ink']}}} .ink2{{fill:{t['ink2']}}} .muted{{fill:{t['muted']}}} "
             f".line{{stroke:{t['line']}}} .nt{{fill:{t['nt']}}} .gap{{stroke:{t['gap']}}} "
-            f".dot-nt{{fill:{t['nt']}}} .pri{{fill:{PRIMARY}}} .sec{{fill:{SECONDARY}}}"
+            f".dot-nt{{fill:{t['nt']}}} .hair{{fill:{t['hair']}}} .pri{{fill:{PRIMARY}}} .sec{{fill:{SECONDARY}}}"
         )
     if theme == "auto":
         return block(THEMES["light"]) + "\n@media (prefers-color-scheme: dark){" + block(THEMES["dark"]) + "}"
     return block(THEMES[theme])
 
 
-def _figure(view: str, x: float, y: float, height: float, by_key: Dict[str, dict], caption: str) -> str:
-    x0, y0, w, h = _DATA[view]["viewBox"]
+def _figure(sex: str, view: str, x: float, y: float, height: float, by_key: Dict[str, dict], caption: str) -> str:
+    x0, y0, w, h = _DATA[sex][view]["viewBox"]
     scale = height / h
     stroke = 1.6 / scale  # about 1.6px on screen
-    parts = _DATA[view]["parts"]
+    parts = _DATA[sex][view]["parts"]
     out = [f'<text x="{x + w * scale / 2:.1f}" y="{y - 14:.1f}" text-anchor="middle" class="muted cap">{caption}</text>',
            f'<g transform="translate({x} {y}) scale({scale:.5f}) translate({-x0} {-y0})" stroke-width="{stroke:.2f}" stroke-linejoin="round">']
     for slug, paths in parts.items():  # neutral parts first so muscles sit on top
@@ -88,13 +88,17 @@ def _figure(view: str, x: float, y: float, height: float, by_key: Dict[str, dict
             continue
         m = by_key[key]
         out.append(f'<g class="{_state(m)} gap"><title>{escape(_tip(m))}</title>{"".join(f"<path d=\"{d}\"/>" for d in paths)}</g>')
+    if "hair" in parts:
+        out.append(f'<g class="hair gap">{"".join(f"<path d=\"{d}\"/>" for d in parts["hair"])}</g>')
     out.append("</g>")
     return "\n".join(out)
 
 
-def render_svg(result: dict, theme: str = "auto") -> str:
+def render_svg(result: dict, theme: str = "auto", sex: str = "male") -> str:
     if theme not in ("auto", "light", "dark"):
         raise ValueError("theme must be auto, light or dark")
+    if sex not in ("male", "female"):
+        raise ValueError("sex must be male or female")
     muscles = result["muscles"]
     by_key = {m["muscle"]: m for m in muscles}
     window = result["window"]
@@ -111,7 +115,7 @@ def render_svg(result: dict, theme: str = "auto") -> str:
     W = 640
     fig_h = 520
     fig_top = 118
-    fw = {v: _DATA[v]["viewBox"][2] * fig_h / _DATA[v]["viewBox"][3] for v in ("front", "back")}
+    fw = {v: _DATA[sex][v]["viewBox"][2] * fig_h / _DATA[sex][v]["viewBox"][3] for v in ("front", "back")}
     gap = 36
     left = (W - fw["front"] - fw["back"] - gap) / 2
     legend_y = fig_top + fig_h + 32
@@ -152,8 +156,8 @@ def render_svg(result: dict, theme: str = "auto") -> str:
 <rect width="{W}" height="{height}" class="bg"/>
 <text x="32" y="42" class="ink h1">Muscle map</text>
 <text x="32" y="64" class="ink2 h2">{escape(when)} - {n_act} strength workout{'s' if n_act != 1 else ''}</text>
-{_figure("front", left, fig_top, fig_h, by_key, "FRONT")}
-{_figure("back", left + fw["front"] + gap, fig_top, fig_h, by_key, "BACK")}
+{_figure(sex, "front", left, fig_top, fig_h, by_key, "FRONT")}
+{_figure(sex, "back", left + fw["front"] + gap, fig_top, fig_h, by_key, "BACK")}
 {legend}
 <line x1="32" y1="{legend_y + 24}" x2="{W - 32}" y2="{legend_y + 24}" class="line" stroke-width="1"/>
 {''.join(parts)}

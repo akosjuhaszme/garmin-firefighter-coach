@@ -1,5 +1,6 @@
 body_parts.json contains SVG path data taken from react-native-body-highlighter
-(files assets/bodyFront.ts and assets/bodyBack.ts, downloaded 2026-10-14):
+(files assets/bodyFront.ts, assets/bodyBack.ts, assets/bodyFemaleFront.ts and assets/bodyFemaleBack.ts,
+downloaded 2026-10-14):
 https://github.com/HichamELBSI/react-native-body-highlighter
 
 The upstream project does not say where the original artwork of these shapes comes from, so the
