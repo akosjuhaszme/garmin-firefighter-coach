@@ -150,4 +150,68 @@ Evidence to look at: pace and heart-rate drift in long runs (get_activity_hr_in_
 Give me the top two limiters with the evidence for each, then for each: two or three specific drills or exercises, how often, how long to try before judging the result, and what measurable change would show it worked. Offer to add the drills into the weekly plan, without scheduling anything until I confirm.
 """)
 
+    @app.prompt(
+        name="firefighter_fitness_test_hu",
+        description="Hungarian professional firefighter entry fitness test (Cooper minimum + 4 of 6 exercises): scores the results, gives the grade, the gap to the next grade and targeted training",
+    )
+    def firefighter_fitness_test_hu() -> str:
+        return _with_rules("""
+Értékeld a hivatásos tűzoltó szakmai képzést megelőző fizikai alkalmasságvizsgálat eredményeimet. (A táblázatokat a felhasználó adta meg; a hatályos rendelet szövegével egyeztetni kell, mielőtt valaki erre a pontszámra támaszkodik.) Magyarul válaszolj.
+
+KONTEXTUS: A vizsgálat jogi alapja a 45/2020. (XII. 16.) BM rendelet és az 1/2021. (I. 21.) BM OKF utasítás. A vizsgálat két részből áll, és MINDKETTŐT teljesíteni kell:
+(1) a minimumfeltételt (Cooper-teszt), és
+(2) a kiegészítő fizikai alkalmasságvizsgálatot.
+
+1. MINIMUMFELTÉTEL - Cooper-teszt (12 perc, kizárólag futással)
+Korcsoport        | Férfi  | Nő
+I.  (18-29 év)    | 2100 m | 1800 m
+II. (30-39 év)    | 1800 m | 1500 m
+III.(40-49 év)    | 1500 m | 1200 m
+IV. (50 év felett)| 1250 m | 1050 m
+Ha a minimum nem teljesül, a jelölt alkalmatlan, függetlenül a kiegészítő pontszámtól.
+
+2. KIEGÉSZÍTŐ VIZSGÁLAT
+A hat gyakorlatból négyet kell szabadon választani. Gyakorlatonként 1-15 pont adható, így a maximum 60 pont. Egy gyakorlat csak akkor érvényes, ha legalább 1 pontot ér.
+
+Gyakorlatok és végrehajtási szabályok:
+- Fekvőtámasz: 30 mp. Le kell menni addig, amíg a felkar párhuzamos a talajjal; a törzs egyenes. Darabszám számít.
+- Húzódzkodás: vállszéles fogás. Az állnak a rúd fölé kell kerülnie, majd teljes karnyújtás következik. Max ismétlés számít.
+- Guggolás: 1 perc, karok csípőn. A térd 90°-ban hajlik, a comb párhuzamos a talajjal. Darabszám számít.
+- Helyből távolugrás: páros lábról, karlendítéssel. A távot az ugróvonaltól a legközelebbi talajérintésig mérik, cm-ben.
+- Félfelülés: 1 perc, hajlított lábbal, lábfej rögzítése nélkül. A lapockának el kell hagynia a talajt (kb. 30°). Darabszám számít.
+- Plank: könyöktámasz, egyenes törzs. Maximális idő számít.
+
+Pontozótáblázat (értékpárok: férfi/nő):
+Pont | Fekvőt.(db) | Húzódz.(db) | Gugg.(db) | Távolugr.(cm) | Félfel.(db) | Plank
+15 | 35/20 | 20/15 | 35/30 | 250/220 | 55/45 | 3:00/2:30
+14 | 33/18 | 18/14 | 33/28 | 245/215 | 53/43 | 2:51/2:21
+13 | 31/16 | 16/13 | 31/26 | 240/210 | 51/41 | 2:40/2:12
+12 | 29/14 | 14/12 | 29/24 | 235/205 | 49/39 | 2:30/2:03
+11 | 27/12 | 12/11 | 27/22 | 230/200 | 47/37 | 2:20/1:54
+10 | 25/10 | 10/10 | 25/20 | 225/195 | 45/35 | 2:10/1:45
+ 9 | 23/9  |  9/9  | 23/18 | 220/190 | 43/33 | 2:00/1:36
+ 8 | 21/8  |  8/8  | 21/16 | 215/185 | 41/31 | 1:50/1:27
+ 7 | 19/7  |  7/7  | 19/14 | 210/180 | 39/29 | 1:40/1:18
+ 6 | 17/6  |  6/6  | 17/12 | 205/175 | 37/27 | 1:30/1:09
+ 5 | 15/5  |  5/5  | 16/11 | 200/170 | 35/25 | 1:20/1:00
+ 4 | 13/4  |  4/4  | 15/10 | 195/165 | 33/23 | 1:10/0:51
+ 3 | 11/3  |  3/3  | 14/9  | 190/160 | 31/21 | 1:00/0:42
+ 2 |  9/2  |  2/2  | 13/8  | 185/155 | 29/19 | 0:50/0:33
+ 1 |  7/1  |  1/1  | 12/7  | 180/150 | 27/17 | 0:40/0:24
+A két szomszédos sor közé eső eredmény az alacsonyabb pontszámot kapja.
+
+Minősítés (összpontszám a 4 választott gyakorlatból, korcsoportonként):
+Minősítés          | I.    | II.   | III.  | IV.
+Kiváló             | 54-60 | 52-60 | 46-60 | 42-60
+Jó                 | 45-53 | 41-51 | 37-45 | 29-41
+Megfelelt          | 40-44 | 32-40 | 28-36 | 20-28
+Alkalmatlan        | 0-39  | 0-31  | 0-27  | 0-19
+
+FELADAT:
+1. Az életkoromat és a nememet olvasd ki a get_athlete_profile eszközzel; csak akkor kérdezd meg, ha nem érhető el. Ezek alapján sorold be a korcsoportot.
+2. Az eredményeimet kérd el tőlem, vagy keresd meg az adataimban: a Cooper-teszthez egy kb. 12 perces, maximális erőkifejtésű futást (get_activities_by_date), az erőgyakorlatokhoz rögzített erőedzést (get_activity_exercise_sets). Ha nem biztos, kérdezz rá. Értékeld őket: döntsd el, hogy a Cooper-minimum teljesül-e. Add meg gyakorlatonként a pontszámot (a "két szomszédos sor közé eső eredmény az alacsonyabb pontszámot kapja" szabály szerint, ellenőrizd kétszer a táblázat-keresést), majd az összpontszámot és a minősítést.
+3. Ha nem adtam meg, melyik 4 gyakorlatot választom, javasold azt a 4-et, amellyel a legtöbb pontot szerezhetem.
+4. Mutasd meg, mennyi hiányzik a következő minősítési szintig, és adj célzott edzésjavaslatot. Jóváhagyásom nélkül ne ütemezz semmit.
+""")
+
     return app
