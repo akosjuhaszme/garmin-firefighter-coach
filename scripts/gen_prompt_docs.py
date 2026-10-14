@@ -61,7 +61,15 @@ def main():
     for name, description, fn in cap.items:
         params = inspect.signature(fn).parameters
         arglist = ", ".join(f"`{p}`" for p in params) or "none"
-        out.append(f"## `{name}`\n\n{description}.\n\nArguments: {arglist}\n\n```text\n{fn().strip()}\n```\n")
+        body = fn().strip()
+        if prompts._RULEBOOK_MARKER in body:
+            # The rulebook is long and is shown once, under firefighter_fitness_test_hu.
+            head, rest = body.split(prompts._RULEBOOK_MARKER, 1)
+            rules = rest.split("\n\nGround rules:", 1)
+            body = head.strip() + "\n\n[" + prompts._RULEBOOK_MARKER + "\n the full rulebook text, identical to the one in `firefighter_fitness_test_hu`]"
+            if len(rules) == 2:
+                body += "\n\nGround rules:" + rules[1]
+        out.append(f"## `{name}`\n\n{description}.\n\nArguments: {arglist}\n\n```text\n{body}\n```\n")
     path = pathlib.Path(__file__).resolve().parent.parent / "docs" / "PROMPTS.md"
     path.write_text("\n".join(out), encoding="utf-8")
     print("wrote", path, len(cap.items), "prompts")

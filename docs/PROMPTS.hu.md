@@ -21,6 +21,7 @@ beépítve; az asszisztens a te nyelveden válaszol. Itt bemásolható magyar sz
 Heti ritmus: a hét utolsó napján heti értékelés, utána a következő hét megtervezése. Reggel,
 ha kétséged van egy edzésről, regenerációs ellenőrzés. Étkezésnapló mellett táplálkozás-ellenőrzés.
 Versenynaptár-bejegyzés után versenyfelkészítés.
+A fizikai felmérő és a felkészülés a következő tesztre bármikor indítható, nem csak az első indításkor (például 6-8 hetente érdemes megismételni a felmérést).
 
 ## Alapszabályok (minden prompt végére)
 
@@ -39,8 +40,9 @@ Személyes edzői és regenerációs rendszert állítasz be nekem. Menj végig 
 1. Kapcsolatok. Hívd a get_athlete_profile és a get_daily_summary eszközt. Ha csatlakoztatva van az mfp-readonly, a fitness_get_day-t is. Mondd meg, mi működik és mi hiányzik (pl. üres consumed_kcal, mert nincs étkezésnapló a Garminhoz kötve, nincs friss mérés, lejárt bejelentkezés).
 2. Amit a Garmin már tud. Foglald össze az elmúlt 8 hetet: get_activities_by_date, heti kilométer és edzésszám, get_personal_records, get_race_predictions, get_training_status, nyugalmi pulzus, HRV és alvás (get_wellness_trend), a súly trendje (get_body_weight), és a naptárban lévő versenyek (get_calendar_events).
 3. Amit a Garmin nem tudhat. Egyszerre kérdezd meg: a célomat és a dátumát, heti hány napon edzhetek és melyek a fix vagy szabad napok, milyen felszerelésem van, sérüléseim és korlátaim, munka- vagy műszakbeosztás, és mi az, amit soha nem szeretnék a tervben.
-4. A háttér elmentése. Javasolj egy rövid személyes háttérjegyzetet (célok, kötöttségek, szokások) és hol tároljam. Privát helyet javasolj, és figyelmeztess, hogy ne kerüljön nyilvános tárolóba.
-5. Az első hét. Javasolj egy hetet táblázatban (nap, edzés, cél, intenzitás pulzuszónában). Amíg nem hagyom jóvá, semmit ne tölts fel és ne ütemezz.
+4. Fizikai állapotfelmérés (opcionális). Kérdezd meg egy sorban: "Szeretnéd felmérni a fizikai állapotodat valamelyik beépített szabályzat alapján (magyar tűzoltó-alkalmasság, USA CPAT, brit Chester-teszt, német, cseh, lengyel, holland teszt, vagy otthoni hibrid felmérő)?" Ha igen, kérj, hogy futtassam a fitness_assessment_menu promptot; ha közeleg egy teszt időpontja, a prepare_for_fitness_test promptot. Mindkettő később, bármikor futtatható, nem csak most. Ha nem, folytasd.
+5. A háttér elmentése. Javasolj egy rövid személyes háttérjegyzetet (célok, kötöttségek, szokások) és hol tároljam. Privát helyet javasolj, és figyelmeztess, hogy ne kerüljön nyilvános tárolóba.
+6. Az első hét. Javasolj egy hetet táblázatban (nap, edzés, cél, intenzitás pulzuszónában). Amíg nem hagyom jóvá, semmit ne tölts fel és ne ütemezz.
 ```
 
 ## Heti edzésterv
@@ -126,6 +128,59 @@ Találd meg, mi korlátozza a fejlődésemet [TERÜLET, ha van], és készíts c
 Nézd meg: a tempó és a pulzus elcsúszása a hosszú futásokban (get_activity_hr_in_timezones, get_activity_splits), a lépésszám és talajkontaktus trendje, ahol van, a személyes rekordok az előrejelzésekhez képest, milyen gyakran maradnak rövidek az edzések, az erőedzések jegyzetei, és az ismétlődő fájdalmak említései.
 
 Add meg a két fő korlátozót bizonyítékkal, majd mindegyikhez: két-három konkrét gyakorlatot, milyen gyakran, mennyi ideig próbáljam mielőtt ítélek, és milyen mérhető változás jelezné a működését. Ajánld fel, hogy beépíted a heti tervbe, de jóváhagyásom nélkül semmit ne ütemezz.
+```
+
+## Felmérő választó (`fitness_assessment_menu`)
+
+Bármikor indítható. Megkérdezi, melyik szabályzat szerint szeretnéd felmérni a fizikai állapotodat,
+végigvezet a teszten (vagy kiolvassa az eredményeidet), összeveti a korábbi felméréseddel, és
+értékel. A szabályzatok teljes szövege alább, a tűzoltó-alkalmasságvizsgálat szakaszban található,
+a prompt azt is tartalmazza.
+
+```text
+FIZIKAI ÁLLAPOTFELMÉRÉS - VÁLASZTÓ
+
+Első lépésként egyetlen kérdésben kérdezd meg tőlem: "Szeretnéd felmérni a fizikai állapotodat valamelyik szabályzat alapján?" Mutasd be az alábbi választékot (rövid leírással), és kérdezd meg, melyiket választom:
+
+1. Magyar hivatásos tűzoltó szakmai képzés előtti alkalmasságvizsgálat: Cooper-minimum és négy választott gyakorlat, pontozással és minősítéssel (a teljes pontozású rendszer, ez az alapértelmezés).
+2. USA - CPAT: megfelelt / nem felelt meg, 10:20 időlimit, mellényben; eszközök nélkül csak közelíteni lehet.
+3. Egyesült Királyság - Chester-teszt és az NFST munkatesztek (VO2max-küszöb).
+4. Németország - berufsfeuerwehr sporttest (kieséses rendszerek).
+5. Csehország - HZS ČR, korcsoportos pontozás.
+6. Lengyelország - PSP (húzódzkodás, ügyességi pálya, beep-teszt).
+7. Hollandia - PPMO (funkcionális tesztek).
+8. Otthon elvégezhető "hibrid" felmérő a CPAT, a Chester-teszt és a PPMO elemeiből.
+9. Most nem kérek felmérést.
+
+Ha a 9-est választom, köszönd meg, és mondd el, hogy a felmérő bármikor újra indítható, nem csak most.
+
+A választás után:
+1. Kérdezd meg, van-e friss eredményem, vagy előbb el kell végeznem a tesztet. Ha előbb el kell végeznem: add meg a protokollt lépésről lépésre, a bemelegítést és a biztonsági tudnivalókat (a hivatalos vizsgálat előtt háziorvosi igazolás kell, ahol a szabályzat előírja), és várd meg az eredményeket. Fájdalomnál vagy rosszullétnél állj le, és orvoshoz irányíts.
+2. Ha korábbi felmérésemet mentettem a privát jegyzeteimbe, vesd össze vele, és mutasd a változást. Ha nincs, javasold, hogy az eredményt privát helyen tároljam, hogy később összevethessük.
+3. Értékelj a lent mellékelt szabályzat szerint (az alapelvek és a feladatok ott vannak).
+4. A végén kérdezd meg, szeretnék-e a következő tesztre készülni (ha igen, ajánld a prepare_for_fitness_test promptot), és emlékeztess, hogy a felmérés bármikor megismételhető, például 6-8 hetente.
+```
+
+## Felkészülés a következő tesztre (`prepare_for_fitness_test`)
+
+Bármikor indítható. Megkérdezi a tesztet és az időpontját (megnézi a naptáradat is), kiindulásként
+felmér, és az időpontból visszaszámolva periodizált tervet készít mini-tesztekkel és tapering-gel.
+Jóváhagyásod után tölti fel és ütemezi az edzéseket.
+
+```text
+Készíts fel a következő fizikai alkalmassági tesztre.
+
+Teszt: kérdezz rá a fitness_assessment_menu választéka szerint.
+Időpont: kérdezz rá: mikor lesz? Nézd meg a naptáramat is (get_calendar_events).
+
+1. Hiányzó adatnál előbb kérdezz (teszt, időpont, jelenlegi eredmények, korlátok, felszerelés).
+2. Kiindulás: ha nincs 4 hétnél újabb felmérésem, készíts egyet az adataimból és az eredményeimből a lent mellékelt szabályzat szerint, különben használd a legutóbbit. Pontszám nélküli rendszernél a küszöbhöz viszonyíts.
+3. Idő: számold ki, hány hét van a tesztig, és hogy a cél minősítés reális-e. Ha túl kevés az idő, mondd ki, és mondd meg, mi érhető el.
+4. Prioritás: sorold fel, hol veszítek a legtöbb pontot vagy hol hiányzik a küszöb. Pontozásos rendszernél válaszd ki azt a négy gyakorlatot, amelyikkel a legkönnyebben javítható az összpontszám.
+5. Terv: periodizált, hetekre bontva (építés, specifikus fázis, tapering és a teszt hete), mini-tesztekkel (pl. 4 és 1 héttel a teszt előtt), a futóedzéseimhez és a regenerációmhoz igazítva (get_training_readiness, get_hrv_status, get_scheduled_workouts). Ne halmozz nehéz edzéseket, és tartsd a pihenőnapokat.
+6. Mutasd táblázatban (hét, fókusz, főbb edzések, mini-teszt). Jóváhagyásom után tölts fel és ütemezz (upload_workouts, schedule_workouts).
+7. Ha a teszt időpontja nincs a naptáramban, javasold, hogy vegyem fel (te nem tudsz eseményt létrehozni).
+8. Mondd meg, mikor ismételjük meg a felmérést (a fitness_assessment_menu bármikor újra futtatható), és hogyan követjük a fejlődést a heti értékelésben (weekly_review).
 ```
 
 ## Tűzoltó alkalmasságvizsgálat (minta felmérő)

@@ -177,6 +177,15 @@ Hollandia
 """
 
 
+# Marker in front of the rulebook in the prompts that carry it; the generated docs
+# cut the text here instead of repeating the long rulebook several times.
+_RULEBOOK_MARKER = "=== SZABÁLYZAT ÉS FORRÁSOK (az értékelés alapja) ==="
+
+
+def _with_rulebook(body: str) -> str:
+    return body.strip() + "\n\n" + _RULEBOOK_MARKER + "\n" + _FIREFIGHTER_TEST_HU
+
+
 def _with_rules(body: str) -> str:
     return body.strip() + "\n\n" + _GROUND_RULES
 
@@ -195,8 +204,9 @@ You are setting up a personal training and recovery coach for this user. Work th
 1. Connections. Call get_athlete_profile and get_daily_summary. If a 'mfp-readonly' server is connected, also call fitness_get_day. Tell me what works and what is missing, for example: consumed_kcal empty (a food diary is not linked to Garmin), no recent weigh-ins, a MyFitnessPal session notice, an expired login.
 2. What Garmin already knows. Summarise the last 8 weeks: get_activities_by_date, weekly distance and sessions, get_personal_records, get_race_predictions, get_training_status, resting heart rate, HRV and sleep (get_wellness_trend), weight trend (get_body_weight), and any races on the calendar (get_calendar_events).
 3. What Garmin cannot know. Ask me only these, all at once: my goal and target date, how many days a week I can train and which days are fixed or off, equipment available, injuries or limitations, work or shift constraints, and anything I never want in a plan.
-4. Save the context. Propose a short personal-context note (goals, constraints, conventions) and where to keep it. Recommend a private place and warn me not to put it in a public repository.
-5. First week. Propose one week as a table (day, session, purpose, intensity as heart-rate zones). Do not upload or schedule anything until I confirm.
+4. Optional fitness assessment. Ask me in one line: "Do you want to assess your physical fitness against one of the built-in rulebooks (Hungarian firefighter entry test, USA CPAT, UK Chester test, German, Czech, Polish or Dutch tests, or a home hybrid test)?" If yes, tell me to run the fitness_assessment_menu prompt next; if I have a test date coming up, prepare_for_fitness_test. Both can be run at any time later, not only now. If no, carry on.
+5. Save the context. Propose a short personal-context note (goals, constraints, conventions) and where to keep it. Recommend a private place and warn me not to put it in a public repository.
+6. First week. Propose one week as a table (day, session, purpose, intensity as heart-rate zones). Do not upload or schedule anything until I confirm.
 """)
 
     @app.prompt(
@@ -314,5 +324,55 @@ Give me the top two limiters with the evidence for each, then for each: two or t
     )
     def firefighter_fitness_test_hu() -> str:
         return _with_rules(_FIREFIGHTER_TEST_HU)
+
+    @app.prompt(
+        name="fitness_assessment_menu",
+        description="Asks which rulebook to assess your physical fitness against (Hungarian firefighter entry test, CPAT, Chester, German, Czech, Polish, Dutch, home hybrid), then runs the assessment; can be repeated at any time",
+    )
+    def fitness_assessment_menu() -> str:
+        return _with_rules(_with_rulebook("""
+FIZIKAI ÁLLAPOTFELMÉRÉS - VÁLASZTÓ
+
+Első lépésként egyetlen kérdésben kérdezd meg tőlem: "Szeretnéd felmérni a fizikai állapotodat valamelyik szabályzat alapján?" Mutasd be az alábbi választékot (rövid leírással), és kérdezd meg, melyiket választom:
+
+1. Magyar hivatásos tűzoltó szakmai képzés előtti alkalmasságvizsgálat: Cooper-minimum és négy választott gyakorlat, pontozással és minősítéssel (a teljes pontozású rendszer, ez az alapértelmezés).
+2. USA - CPAT: megfelelt / nem felelt meg, 10:20 időlimit, mellényben; eszközök nélkül csak közelíteni lehet.
+3. Egyesült Királyság - Chester-teszt és az NFST munkatesztek (VO2max-küszöb).
+4. Németország - berufsfeuerwehr sporttest (kieséses rendszerek).
+5. Csehország - HZS ČR, korcsoportos pontozás.
+6. Lengyelország - PSP (húzódzkodás, ügyességi pálya, beep-teszt).
+7. Hollandia - PPMO (funkcionális tesztek).
+8. Otthon elvégezhető "hibrid" felmérő a CPAT, a Chester-teszt és a PPMO elemeiből.
+9. Most nem kérek felmérést.
+
+Ha a 9-est választom, köszönd meg, és mondd el, hogy a felmérő bármikor újra indítható, nem csak most.
+
+A választás után:
+1. Kérdezd meg, van-e friss eredményem, vagy előbb el kell végeznem a tesztet. Ha előbb el kell végeznem: add meg a protokollt lépésről lépésre, a bemelegítést és a biztonsági tudnivalókat (a hivatalos vizsgálat előtt háziorvosi igazolás kell, ahol a szabályzat előírja), és várd meg az eredményeket. Fájdalomnál vagy rosszullétnél állj le, és orvoshoz irányíts.
+2. Ha korábbi felmérésemet mentettem a privát jegyzeteimbe, vesd össze vele, és mutasd a változást. Ha nincs, javasold, hogy az eredményt privát helyen tároljam, hogy később összevethessük.
+3. Értékelj a lent mellékelt szabályzat szerint (az alapelvek és a feladatok ott vannak).
+4. A végén kérdezd meg, szeretnék-e a következő tesztre készülni (ha igen, ajánld a prepare_for_fitness_test promptot), és emlékeztess, hogy a felmérés bármikor megismételhető, például 6-8 hetente.
+"""))
+
+    @app.prompt(
+        name="prepare_for_fitness_test",
+        description="Training plan counted back from the date of the next fitness test: baseline, weakest components, periodised weeks with mini-tests, taper; can be started at any time",
+    )
+    def prepare_for_fitness_test(test: str = "", test_date: str = "") -> str:
+        return _with_rules(_with_rulebook(f"""
+Készíts fel a következő fizikai alkalmassági tesztre.
+
+Teszt: {test or "kérdezz rá a fitness_assessment_menu választéka szerint"}.
+Időpont: {test_date or "kérdezz rá: mikor lesz? Nézd meg a naptáramat is (get_calendar_events)"}.
+
+1. Hiányzó adatnál előbb kérdezz (teszt, időpont, jelenlegi eredmények, korlátok, felszerelés).
+2. Kiindulás: ha nincs 4 hétnél újabb felmérésem, készíts egyet az adataimból és az eredményeimből a lent mellékelt szabályzat szerint, különben használd a legutóbbit. Pontszám nélküli rendszernél a küszöbhöz viszonyíts.
+3. Idő: számold ki, hány hét van a tesztig, és hogy a cél minősítés reális-e. Ha túl kevés az idő, mondd ki, és mondd meg, mi érhető el.
+4. Prioritás: sorold fel, hol veszítek a legtöbb pontot vagy hol hiányzik a küszöb. Pontozásos rendszernél válaszd ki azt a négy gyakorlatot, amelyikkel a legkönnyebben javítható az összpontszám.
+5. Terv: periodizált, hetekre bontva (építés, specifikus fázis, tapering és a teszt hete), mini-tesztekkel (pl. 4 és 1 héttel a teszt előtt), a futóedzéseimhez és a regenerációmhoz igazítva (get_training_readiness, get_hrv_status, get_scheduled_workouts). Ne halmozz nehéz edzéseket, és tartsd a pihenőnapokat.
+6. Mutasd táblázatban (hét, fókusz, főbb edzések, mini-teszt). Jóváhagyásom után tölts fel és ütemezz (upload_workouts, schedule_workouts).
+7. Ha a teszt időpontja nincs a naptáramban, javasold, hogy vegyem fel (te nem tudsz eseményt létrehozni).
+8. Mondd meg, mikor ismételjük meg a felmérést (a fitness_assessment_menu bármikor újra futtatható), és hogyan követjük a fejlődést a heti értékelésben (weekly_review).
+"""))
 
     return app
