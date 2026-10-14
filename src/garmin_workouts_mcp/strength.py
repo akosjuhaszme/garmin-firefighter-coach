@@ -57,7 +57,7 @@ _BY_CATEGORY: Dict[str, Optional[Tuple[List[str], List[str]]]] = {
     "BENCH_PRESS": (["chest"], ["triceps", "shoulders"]),
     "CALF_RAISE": (["calves"], []),
     "CARDIO": None,
-    "CARRY": (["forearms", "traps"], ["abs", "shoulders"]),
+    "CARRY": (["traps", "abs"], ["shoulders"]),
     "CHOP": (["obliques", "abs"], ["shoulders", "glutes"]),
     "CORE": (["abs"], ["obliques", "lower_back"]),
     "CRUNCH": (["abs"], ["obliques"]),
@@ -71,19 +71,19 @@ _BY_CATEGORY: Dict[str, Optional[Tuple[List[str], List[str]]]] = {
     "LATERAL_RAISE": (["shoulders"], ["traps"]),
     "LEG_CURL": (["hamstrings"], ["glutes", "calves"]),
     "LEG_RAISE": (["abs"], ["obliques"]),
-    "LUNGE": (["quads", "glutes"], ["hamstrings", "hip_stabilizers", "calves"]),
+    "LUNGE": (["quads", "glutes", "hip_stabilizers"], ["hamstrings", "calves"]),
     "OLYMPIC_LIFT": (["glutes", "quads", "hamstrings", "traps"], ["shoulders", "lower_back", "forearms"]),
     "PLANK": (["abs"], ["shoulders", "obliques", "glutes", "lower_back"]),
     "PLYO": (["quads", "glutes", "calves"], ["hamstrings"]),
     "PULL_UP": (["lats"], ["biceps", "forearms", "shoulders"]),
-    "PUSH_UP": (["chest"], ["triceps", "shoulders", "abs"]),
-    "ROW": (["lats"], ["biceps", "traps", "shoulders", "forearms"]),
+    "PUSH_UP": (["chest", "shoulders"], ["triceps", "abs"]),
+    "ROW": (["lats"], ["biceps", "traps", "shoulders"]),
     "RUN": None,
     "SHOULDER_PRESS": (["shoulders"], ["triceps", "traps"]),
     "SHOULDER_STABILITY": (["shoulders"], ["traps"]),
     "SHRUG": (["traps"], ["shoulders", "forearms"]),
     "SIT_UP": (["abs"], ["obliques"]),
-    "SQUAT": (["quads", "glutes"], ["hamstrings", "lower_back", "calves", "abs"]),
+    "SQUAT": (["quads", "glutes"], ["hamstrings", "lower_back", "calves", "abs", "hip_stabilizers"]),
     "TOTAL_BODY": (["quads", "glutes", "chest"], ["shoulders", "triceps", "abs"]),
     "TRICEPS_EXTENSION": (["triceps"], []),
     "WARM_UP": None,
@@ -92,8 +92,8 @@ _BY_CATEGORY: Dict[str, Optional[Tuple[List[str], List[str]]]] = {
 # (category, substring of the exercise name) -> muscles; checked before the category.
 _BY_NAME: List[Tuple[Optional[str], str, Tuple[List[str], List[str]]]] = [
     (None, "DEAD_BUG", (["abs"], ["hip_stabilizers", "obliques"])),
-    (None, "QUADRUPED", (["glutes", "lower_back"], ["abs", "hamstrings"])),
-    (None, "BIRD_DOG", (["glutes", "lower_back"], ["abs", "hamstrings"])),
+    (None, "QUADRUPED", (["glutes"], ["lower_back", "abs", "hamstrings"])),
+    (None, "BIRD_DOG", (["glutes"], ["lower_back", "abs", "hamstrings"])),
     ("HIP_STABILITY", "FIRE_HYDRANT", (["hip_stabilizers"], ["glutes"])),
     ("HIP_STABILITY", "SIDE_LYING", (["hip_stabilizers"], ["glutes"])),
     ("HIP_STABILITY", "CLAM", (["hip_stabilizers"], ["glutes"])),
@@ -171,9 +171,10 @@ def classify_sets(exercise_sets: List[dict]) -> Tuple[List[dict], List[dict]]:
 
 
 def _status(m: dict) -> str:
-    """worked = at least 2 sets with the muscle as a primary mover; assisted = it
-    took part only as a secondary muscle (or in a single primary set); else not worked."""
-    if m["primary_sets"] >= 2:
+    """worked = at least one set with the muscle as a primary mover (Garmin's
+    "primary"); assisted = it took part only as a secondary muscle (Garmin's
+    "secondary"); else not worked ("not targeted")."""
+    if m["primary_sets"] >= 1:
         return "worked"
     if m["weighted_sets"] > 0:
         return "assisted"
@@ -340,7 +341,7 @@ def register_tools(app):
         Answers "did muscle group X work in this period?" from the raw exercise
         sets of the strength workouts in the window (default: the last 7 days),
         or of one activity (activity_id). For each of 15 muscle groups: a status
-        (worked = at least 2 sets with it as a primary mover; assisted = it only
+        (worked = at least one set with it as a primary mover; assisted = it only
         took part as a secondary muscle; not worked), weighted sets (a set counts 1.0 for a primary and 0.5 for a
         secondary muscle), reps, tonnage in kg (reps x weight, where a weight was
         recorded), the date it was last worked and the days since. Also lists
@@ -368,12 +369,12 @@ def register_tools(app):
             return f"Error analysing muscle work: {e}"
 
     @app.tool()
-    async def render_muscle_map(start_date: str = "", end_date: str = "", activity_id: str = "", path: str = "") -> str:
+    async def render_muscle_map(start_date: str = "", end_date: str = "", activity_id: str = "", path: str = "", theme: str = "auto") -> str:
         """Draw a front/back body map of the muscles trained (SVG file)
 
-        Same analysis as get_muscle_work, drawn as a coloured body figure (front
-        and back) with a legend listing every muscle's weighted sets and the date
-        it was last worked; untrained muscles stay grey. Writes an SVG file and
+        Same analysis as get_muscle_work, drawn like Garmin's own map: a front and
+        a back figure with primary muscles in red, secondary in yellow and the
+        rest grey (not targeted), and the weighted sets listed underneath. Writes an SVG file and
         returns its path (default: the local data directory, ~/.garmin-coach/,
         named after the window) together with a short summary. Open the file in
         a browser, or attach it so the user can look at it. A stylised figure, not
@@ -385,6 +386,7 @@ def register_tools(app):
             end_date: YYYY-MM-DD (default: today)
             activity_id: Draw just this activity
             path: Optional output file path (.svg)
+            theme: auto (follows the viewer's light/dark setting), light or dark
         """
         try:
             result = analyse(start_date, end_date, activity_id)
@@ -392,7 +394,7 @@ def register_tools(app):
                 return f'No strength workouts with recorded sets between {result["window"]["start"]} and {result["window"]["end"]}.'
             out = Path(path) if path else default_output_path(result)
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(render_svg(result), encoding="utf-8")
+            out.write_text(render_svg(result, theme), encoding="utf-8")
             return json.dumps({
                 "status": "success", "file": str(out), "window": result["window"],
                 "worked": [m["label"] for m in result["muscles"] if m["status"] == "worked"],
