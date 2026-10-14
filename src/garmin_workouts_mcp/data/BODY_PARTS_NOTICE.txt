@@ -2,8 +2,9 @@ body_parts.json contains SVG path data taken from react-native-body-highlighter
 (files assets/bodyFront.ts and assets/bodyBack.ts, downloaded 2026-10-14):
 https://github.com/HichamELBSI/react-native-body-highlighter
 
-That project says its polygons were not drawn by its author alone; the original artwork source is not
-stated there. Check the provenance before redistributing the data outside this machine.
+The upstream project does not say where the original artwork of these shapes comes from, so the
+provenance of the drawing itself is not documented there. The shapes are redistributed here under the
+MIT licence of the upstream project, as that licence permits.
 
 The project's license, reproduced as required:
 

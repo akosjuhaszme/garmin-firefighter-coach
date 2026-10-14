@@ -40,8 +40,12 @@ _SLUGS = {
     "quads": ["quadriceps"], "hamstrings": ["hamstring"], "calves": ["calves"],
 }
 _MUSCLE_OF = {slug: key for key, slugs in _SLUGS.items() for slug in slugs}
-# drawn in the neutral colour, never coloured ("hair" is left out)
-_NEUTRAL = {"head", "neck", "hands", "feet", "knees", "ankles", "tibialis"}
+# drawn in the neutral colour, never coloured. On the back view the head is the hair
+# silhouette: the data's back "head" shape has ears that read as horns.
+_NEUTRAL = {
+    "front": {"head", "neck", "hands", "feet", "knees", "ankles", "tibialis"},
+    "back": {"hair", "neck", "hands", "feet", "ankles"},
+}
 
 
 def _state(m: dict) -> str:
@@ -76,7 +80,7 @@ def _figure(view: str, x: float, y: float, height: float, by_key: Dict[str, dict
     out = [f'<text x="{x + w * scale / 2:.1f}" y="{y - 14:.1f}" text-anchor="middle" class="muted cap">{caption}</text>',
            f'<g transform="translate({x} {y}) scale({scale:.5f}) translate({-x0} {-y0})" stroke-width="{stroke:.2f}" stroke-linejoin="round">']
     for slug, paths in parts.items():  # neutral parts first so muscles sit on top
-        if slug in _NEUTRAL:
+        if slug in _NEUTRAL[view]:
             out.append(f'<g class="nt gap">{"".join(f"<path d=\"{d}\"/>" for d in paths)}</g>')
     for slug, paths in parts.items():
         key = _MUSCLE_OF.get(slug)
