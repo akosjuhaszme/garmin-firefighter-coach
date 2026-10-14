@@ -238,34 +238,45 @@ Ground rules:
 
 ## `firefighter_fitness_test_hu`
 
-Hungarian professional firefighter entry fitness test (Cooper minimum + 4 of 6 exercises): scores the results, gives the grade, the gap to the next grade and targeted training.
+Firefighter fitness test assessor (Hungarian entry test with scoring tables, plus USA, UK, German, Czech, Polish and Dutch benchmarks): scores results, gives the grade, the gap to the next level and targeted training.
 
 Arguments: none
 
 ```text
-Értékeld a hivatásos tűzoltó szakmai képzést megelőző fizikai alkalmasságvizsgálat eredményeimet. (A táblázatokat a felhasználó adta meg; a hatályos rendelet szövegével egyeztetni kell, mielőtt valaki erre a pontszámra támaszkodik.) Magyarul válaszolj.
+Dolgozz tűzoltó-alkalmasság értékelőként. Az alábbi szabályok és táblázatok alapján értékeld az eredményeimet. A táblázatokat és az összefoglalókat a felhasználó állította össze, nem ellenőriztük őket a hatályos szöveggel: ha eltérést találsz, a FORRÁSOK hivatalos leírásai a mérvadók.
 
-KONTEXTUS: A vizsgálat jogi alapja a 45/2020. (XII. 16.) BM rendelet és az 1/2021. (I. 21.) BM OKF utasítás. A vizsgálat két részből áll, és MINDKETTŐT teljesíteni kell:
-(1) a minimumfeltételt (Cooper-teszt), és
-(2) a kiegészítő fizikai alkalmasságvizsgálatot.
+ALAPELVEK
+- Ha az értékeléshez adat hiányzik (életkor, nem, eredmények, választott gyakorlatok), előbb kérdezz rá.
+- A végeredményeket két tizedesjegyre, tizedesvesszővel add meg.
+- Ha egy szabály vagy határérték bizonytalan vagy elavult lehet, jelezd, és hivatkozz a forrásra (lásd a FORRÁSOK részt).
 
-1. MINIMUMFELTÉTEL - Cooper-teszt (12 perc, kizárólag futással)
-Korcsoport        | Férfi  | Nő
-I.  (18-29 év)    | 2100 m | 1800 m
-II. (30-39 év)    | 1800 m | 1500 m
-III.(40-49 év)    | 1500 m | 1200 m
-IV. (50 év felett)| 1250 m | 1050 m
-Ha a minimum nem teljesül, a jelölt alkalmatlan, függetlenül a kiegészítő pontszámtól.
+GARMIN-ADATOK (ha a Garmin-szerver csatlakoztatva van)
+- Az életkort, a nemet és a testsúlyt a get_athlete_profile adja, ezekre ne kérdezz rá.
+- A Cooper-teszthez keress egy kb. 12 perces, maximális erőkifejtésű futást (get_activities_by_date). Az erőgyakorlatokhoz a rögzített erőedzések (get_activity_exercise_sets) segíthetnek.
+- A Garmin VO2max-értéke (get_athlete_profile) becslés, nem laboratóriumi vagy Chester-teszt eredmény. Ha a brit 42,3 ml/kg/perc küszöbhöz hasonlítod, jelezd ezt a különbséget.
 
-2. KIEGÉSZÍTŐ VIZSGÁLAT
-A hat gyakorlatból négyet kell szabadon választani. Gyakorlatonként 1-15 pont adható, így a maximum 60 pont. Egy gyakorlat csak akkor érvényes, ha legalább 1 pontot ér.
+========================================
+1. MAGYARORSZÁG – hivatásos tűzoltó szakmai képzés előtti fizikai alkalmasságvizsgálat
+Jogi alap: 45/2020. (XII. 16.) BM rendelet; 1/2021. (I. 21.) BM OKF utasítás.
+A vizsgálat két részből áll, és MINDKETTŐT teljesíteni kell. Előfeltétel a háziorvosi igazolás.
+
+1.1 Minimumfeltétel – Cooper-teszt (12 perc, kizárólag futással)
+Korcsoport          | Férfi  | Nő
+I.   (18–29 év)     | 2100 m | 1800 m
+II.  (30–39 év)     | 1800 m | 1500 m
+III. (40–49 év)     | 1500 m | 1200 m
+IV.  (50 év felett) | 1250 m | 1050 m
+Ha a minimum nem teljesül, a jelölt alkalmatlan.
+
+1.2 Kiegészítő vizsgálat
+A hat gyakorlatból négyet kell választani. Gyakorlatonként 1–15 pont adható, így a maximum 60 pont. Egy gyakorlat csak akkor érvényes, ha legalább 1 pontot ér.
 
 Gyakorlatok és végrehajtási szabályok:
-- Fekvőtámasz: 30 mp. Le kell menni addig, amíg a felkar párhuzamos a talajjal; a törzs egyenes. Darabszám számít.
+- Fekvőtámasz: 30 mp. Le kell menni addig, amíg a felkar párhuzamos a talajjal; a törzs egyenes.
 - Húzódzkodás: vállszéles fogás. Az állnak a rúd fölé kell kerülnie, majd teljes karnyújtás következik. Max ismétlés számít.
-- Guggolás: 1 perc, karok csípőn. A térd 90°-ban hajlik, a comb párhuzamos a talajjal. Darabszám számít.
+- Guggolás: 1 perc, kéz csípőn. A térd 90°-ban hajlik, a comb párhuzamos a talajjal.
 - Helyből távolugrás: páros lábról, karlendítéssel. A távot az ugróvonaltól a legközelebbi talajérintésig mérik, cm-ben.
-- Félfelülés: 1 perc, hajlított lábbal, lábfej rögzítése nélkül. A lapockának el kell hagynia a talajt (kb. 30°). Darabszám számít.
+- Félfelülés: 1 perc, hajlított lábbal, lábfej rögzítése nélkül. A lapockának el kell hagynia a talajt (kb. 30°).
 - Plank: könyöktámasz, egyenes törzs. Maximális idő számít.
 
 Pontozótáblázat (értékpárok: férfi/nő):
@@ -285,20 +296,105 @@ Pont | Fekvőt.(db) | Húzódz.(db) | Gugg.(db) | Távolugr.(cm) | Félfel.(db) 
  3 | 11/3  |  3/3  | 14/9  | 190/160 | 31/21 | 1:00/0:42
  2 |  9/2  |  2/2  | 13/8  | 185/155 | 29/19 | 0:50/0:33
  1 |  7/1  |  1/1  | 12/7  | 180/150 | 27/17 | 0:40/0:24
-A két szomszédos sor közé eső eredmény az alacsonyabb pontszámot kapja.
+A két szomszédos sor közé eső eredmény az alacsonyabb pontot kapja.
 
-Minősítés (összpontszám a 4 választott gyakorlatból, korcsoportonként):
-Minősítés          | I.    | II.   | III.  | IV.
-Kiváló             | 54-60 | 52-60 | 46-60 | 42-60
-Jó                 | 45-53 | 41-51 | 37-45 | 29-41
-Megfelelt          | 40-44 | 32-40 | 28-36 | 20-28
-Alkalmatlan        | 0-39  | 0-31  | 0-27  | 0-19
+Minősítés (a 4 gyakorlat összpontszáma alapján):
+Minősítés   | I.    | II.   | III.  | IV.
+Kiváló      | 54–60 | 52–60 | 46–60 | 42–60
+Jó          | 45–53 | 41–51 | 37–45 | 29–41
+Megfelelt   | 40–44 | 32–40 | 28–36 | 20–28
+Alkalmatlan | 0–39  | 0–31  | 0–27  | 0–19
 
-FELADAT:
-1. Az életkoromat és a nememet olvasd ki a get_athlete_profile eszközzel; csak akkor kérdezd meg, ha nem érhető el. Ezek alapján sorold be a korcsoportot.
-2. Az eredményeimet kérd el tőlem, vagy keresd meg az adataimban: a Cooper-teszthez egy kb. 12 perces, maximális erőkifejtésű futást (get_activities_by_date), az erőgyakorlatokhoz rögzített erőedzést (get_activity_exercise_sets). Ha nem biztos, kérdezz rá. Értékeld őket: döntsd el, hogy a Cooper-minimum teljesül-e. Add meg gyakorlatonként a pontszámot (a "két szomszédos sor közé eső eredmény az alacsonyabb pontszámot kapja" szabály szerint, ellenőrizd kétszer a táblázat-keresést), majd az összpontszámot és a minősítést.
-3. Ha nem adtam meg, melyik 4 gyakorlatot választom, javasold azt a 4-et, amellyel a legtöbb pontot szerezhetem.
-4. Mutasd meg, mennyi hiányzik a következő minősítési szintig, és adj célzott edzésjavaslatot. Jóváhagyásom nélkül ne ütemezz semmit.
+========================================
+2. NEMZETKÖZI FELMÉRŐK (viszonyítási alap)
+
+2.1 USA – CPAT (Candidate Physical Ability Test)
+- Megfelelt/nem felelt meg teszt, időlimit: 10:20. Nincs korcsoport.
+- Végig 22,68 kg-os (50 lb) mellényt kell viselni.
+- Nyolc állomás egymás után: lépcsőzés StepMill gépen, tömlőhúzás, felszerelés cipelése, létraemelés és -kitolás, erőszakos behatolás, kutatás (kúszás), mentés (bábuhúzás), plafonbontás és -húzás.
+- Az állomások között 25,91 m gyaloglás következik (kb. 20 mp pihenő). Futni tilos.
+- Esés, kapaszkodás vagy a gépről lelépés azonnali bukás.
+
+2.2 Egyesült Királyság – Chester Treadmill Walk Test + NFST
+- Egységes küszöb: VO2max ≥ 42,3 ml/kg/perc, életkortól és nemtől függetlenül.
+- Protokoll: 6,2 km/h sebesség, 0%-os emelkedővel indul, kétpercenként +3%, a 12. percre eléri a 15%-ot. A 12 percet segítség nélkül kell végigcsinálni.
+- Kiegészítő munkatesztek (NFST, London): létramászás; létraemelés-szimulátor (30 kg-os rúd 190 cm magasra); felszereléscipelés; felszerelés-összeszerelés; zárt tér.
+- Egyes szolgálatok a hivatásos felvételinél 1,5 mérföldes futással mérik a VO2maxot.
+
+2.3 Németország – Berufsfeuerwehr Sporttest
+- A Kölni Sportfőiskola (DSHS Köln) tesztje, helyenként 9–10 versenyszámmal: állóképesség, erő, gyorsaság, reakció, koordináció, egyensúly.
+- Nürnberg: kieséses rendszer. Egy nem teljesített szám után vége a tesztnek. Egy példa: akadálypálya-parcour ≤ 20 mp.
+- München: hét feladat, köztük 30 m-es, 75°-os gépezetes létra mászása ≤ 60 mp alatt; wechselsprünge (oldalirányú ugrások 33 cm-es akadály fölött).
+
+2.4 Csehország – HZS ČR (Pokyn GŘ HZS ČR 58/2008; 324/2001 Sb. vyhláška)
+- Korcsoportos pontozás, az adott naptári évben betöltött életkor számít.
+- Erő- és állóképességi tesztek, korcsoportonkénti ponthatárokkal.
+- 51 év feletti férfiaknál csak a teljesítés számít, pontozás nélkül.
+- Van szakirodalom önkéntes tűzoltók teszteléséről, TFA-szerű (Toughest Firefighter Alive) próbákkal.
+
+2.5 Lengyelország – PSP (Dz.U. 2018/673)
+- Felvételi: húzódzkodás, „boríték-futás" (ügyességi pálya) és beep-teszt.
+- Éves ellenőrzés: két próba, nemenként és a beosztás jellege szerint eltérően.
+
+2.6 Hollandia – PPMO (Periodiek Preventief Medisch Onderzoek)
+- Hivatásos és önkéntes beosztott tűzoltókra egyaránt vonatkozik.
+- Éves fizikai teszt, és javasoltan négyévente teljes PPMO.
+- Validált funkcionális tesztek: emelés-cipelés, térdelés-guggolás, mászás-kúszás (létrateszt), tűzoltási szimuláció. Előtte PAR-Q kérdőív.
+- A protokollt a Coronel Instituut (AMC Amszterdam) fejlesztette ki.
+
+========================================
+3. FELADATOK
+1. Kérdezd meg, ha nem adtam meg és a Garminból nem olvasható ki: életkor, nem, testsúly, jelenlegi eredmények, és melyik rendszer szerint értékeljek (alapértelmezés: magyar).
+2. Értékelés:
+   - magyar rendszerben: korcsoport, Cooper-minimum, gyakorlatonkénti pontszám, összpontszám, minősítés (a táblázatkeresést ellenőrizd kétszer);
+   - nemzetközi rendszerekben: teljesíti-e a küszöböt / hol áll hozzá képest.
+3. Ha nem adtam meg a választott gyakorlatokat, javasold azt a 4-et, amellyel a legtöbb pontot szerezhetem.
+4. Hiányelemzés: mennyi hiányzik a következő minősítési szintig, illetve az egyes nemzetközi küszöbökig.
+5. Edzésjavaslat: célzott, periodizált javaslat. Vedd figyelembe a rendelkezésre álló eszközöket (pl. kettlebell, evezőgép) és az esetleges sérülési korlátokat. Jóváhagyásom nélkül ne ütemezz semmit.
+6. Kérésre építs egy otthon is végrehajtható „hibrid" felmérőt a CPAT, a Chester-teszt és a PPMO elemeiből.
+
+========================================
+4. FORRÁSOK
+Magyarország
+- Békés VMKI – Tájékoztató a tűzoltó szakmai képzést megelőző fizikai alkalmasságvizsgálatról: https://bekes.katasztrofavedelem.hu/application/uploads/documents/2024-04/83662.pdf
+- Heves VMKI – Hogyan lehetsz tűzoltó?: https://heves.katasztrofavedelem.hu/application/uploads/documents/2025-02/85130.pdf
+- Védelem Tudomány – Tűzoltók fizikai állapotfelmérése (2021): https://ojs3.mtak.hu/index.php/vedelemtudomany/article/download/13455/10859
+- Kanyó–Vásárhelyi-Nagy: Research for New Physical Ability Testing Method for Firefighters in the V4 Countries (MKK 2019): https://folyoirat.ludovika.hu/index.php/mkk/article/view/223
+
+USA
+- San Antonio FD – CPAT: https://www.sa.gov/Directory/Departments/SAFD/Recruiting/Become-a-Firefighter/Candidate/CPAT
+- Seattle – CPAT Orientation Guide: https://seattle.gov/documents/departments/firejobs/cpatorientationguide.pdf
+- Colorado Springs FD – CPAT: https://coloradosprings.gov/node/55121
+
+Egyesült Királyság
+- Cambridgeshire FRS – Chester treadmill test: https://www.cambsfire.gov.uk/media/3096/chester_fitness_test.pdf
+- North Wales Fire – Firefighter Fitness Guide: https://www.northwalesfire.gov.wales/media/u43lysul/firefighters-fitness-booklet.pdf
+- London Fire Brigade – Fitness tests: https://www.london-fire.gov.uk/careers/become-a-firefighter/fitness-tests
+- LFB – Annual Fitness Testing (2024): https://www.london-fire.gov.uk/media/4zjngz5g/lfc-24-039-annual-fitness-testing-for-publication-signed.pdf
+- Avon Fire – Practical physical tests: https://www.avonfire.gov.uk/careers/wholetime-firefighter/practical-physical-tests
+- Topend Sports – Chester Treadmill Walk Test: https://www.topendsports.com/testing/tests/chester-treadmill-walk.htm
+
+Németország
+- Feuerwehr Wiesbaden – Auswahlverfahren: https://www.wiesbaden.de/leben-wohnen/feuerwehr-notfaelle/ehrenamt-beruf-karriere/informationen-zum-auswahlverfahren
+- Stadt Dortmund – Einstellungstest: https://www.dortmund.de/themen/sicherheit-und-ordnung/helfer-und-retter/berufsfeuerwehr/karriere/ausbildung-zum-zur-brandmeister-in/der-einstellungstest/
+- Nürnberg – Einstellungstest: https://www.nuernberg.de/internet/arbeitgeberin/einstellungstest.html
+- BF München – Sporttest: https://www.hr6.tum.de/fileadmin/w00bjm/feuerwehr/Einstellung/Sporttest.pdf
+- Feuerwehr Stuttgart – Informationen zur Bewerbung (a korábbi PDF-hivatkozás már nem érhető el): https://feuerwehr.stuttgart.de/karriere/informationen-zur-bewerbung/
+
+Csehország
+- HZS ČR – Pokyn GŘ 58/2008: https://hzscr.gov.cz/soubor/pokyn58-08-pdf.aspx
+- Vyhláška 324/2001 Sb.: https://www.epravo.cz/top/zakony/sbirka-zakonu/sb/2001/324
+- Önkéntes tűzoltók fizikai tesztje, TFA (VŠB, 2024): https://dspace.vsb.cz/handle/10084/155064
+
+Lengyelország
+- KG PSP – Sport w PSP: https://www.gov.pl/web/kgpsp/sport-w-psp
+- Dz.U. 2018/673 – ocena sprawności fizycznej: https://api.sejm.gov.pl/eli/acts/DU/2018/673/text.html
+
+Hollandia
+- Keuringen brandweerpersoneel: https://lokaleregelgeving.overheid.nl/CVDR299668/1
+- PPMO Bijlage VIIb: https://repository.officiele-overheidspublicaties.nl/CVDR/CVDR59711/2/xml/i41839.pdf
+- NIPV – Waarom PPMO: https://archief.nipv.nl/documenten/waarom-ppmo
+- PPMO testprotocol (Coronel Instituut): https://archief.nipv.nl/documenten/ppmo-periodiek-preventief-medisch-onderzoek-voor-repressief-brandweerpersoneel
 
 Ground rules:
 - Read the user's real data with the connected tools instead of asking for numbers Garmin already has (age, height, weight, zones, history).
