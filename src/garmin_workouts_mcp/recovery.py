@@ -12,6 +12,8 @@ no extra auth step.
 """
 import json
 
+from garmin_workouts_mcp.events import event_row, fetch_events, month_range
+
 # The garmin_client will be set by the main file
 garmin_client = None
 
@@ -176,48 +178,24 @@ def register_tools(app):
         """Get races/events from the Garmin Connect calendar (the manually-added "Events"
         feature - distinct from activities and scheduled workouts).
 
-        Scans one or more calendar months starting at start_year/start_month and returns
-        every entry from that feature (itemType=="event"), with title, date, location,
-        distance, and registration URL. Also includes Garmin's own "is_race" flag, which
-        is unreliable on its own - it is true for some registered races (e.g. road
-        marathons) but false for others that are just as real (e.g. a 100km hiking/trail
-        ultra), so it is reported as extra info rather than used to filter results.
+        Reads one or more calendar months starting at start_year/start_month and returns
+        every entry from that feature with event_id (needed by update_calendar_event and
+        delete_calendar_event), title, date, start time, location, distance (distance_km),
+        goal_time (h:mm:ss, empty when no goal is set), privacy, event_type, registration
+        URL and note. Also includes Garmin's own "is_race" flag, which is unreliable on
+        its own - it is true for some registered races (e.g. road marathons) but false
+        for others that are just as real (e.g. a 100km hiking/trail ultra), so it is
+        reported as extra info rather than used to filter results.
 
         Args:
-            start_year: Year to start scanning (e.g. 2026)
-            start_month: Month to start scanning, 1-12
-            months: How many consecutive months to scan starting from start_year/start_month (default 1, max 24)
+            start_year: Year to start reading (e.g. 2026)
+            start_month: Month to start reading, 1-12
+            months: How many consecutive months to read starting from start_year/start_month (default 1, max 24)
         """
         try:
             months = max(1, min(months, 24))
-            events = {}
-            year, month = start_year, start_month
-            for _ in range(months):
-                url = f"calendar-service/year/{year}/month/{month - 1}"
-                response = garmin_client.garth.get("connectapi", url)
-                data = response.json()
-                for item in data.get("calendarItems", []):
-                    if item.get("itemType") == "event":
-                        target = item.get("completionTarget") or {}
-                        # calendar-service month views overlap at the edges (a given
-                        # event can appear in two consecutive months' results), so
-                        # dedupe by Garmin's own event id.
-                        events[item.get("id")] = {
-                            "title": item.get("title"),
-                            "date": item.get("date"),
-                            "start_time": (item.get("eventTimeLocal") or {}).get("startTimeHhMm"),
-                            "location": item.get("location"),
-                            "distance": target.get("value"),
-                            "distance_unit": target.get("unit"),
-                            "is_race": item.get("isRace"),
-                            "url": item.get("url"),
-                        }
-                month += 1
-                if month > 12:
-                    month = 1
-                    year += 1
-
-            events = sorted(events.values(), key=lambda e: e.get("date") or "")
+            first_day, last_day = month_range(start_year, start_month, months)
+            events = [event_row(item) for item in fetch_events(garmin_client, first_day, last_day)]
 
             if not events:
                 return f"No races/events found in the {months} month(s) starting {start_year}-{start_month:02d}."
