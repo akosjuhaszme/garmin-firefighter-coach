@@ -232,7 +232,7 @@ Plan my training week starting {week_start or 'next Monday'}. Extra constraints 
         return _with_rules(f"""
 Review my last {days} days as my coach.
 
-1. Data: planned versus completed sessions (get_scheduled_workouts, get_activities_by_date), total load, get_wellness_trend for sleep, HRV, resting heart rate, Body Battery and lifestyle flags (illness, alcohol, travel), get_body_weight for the trend, and, if connected, calories and macros from the food diary against the day's goals.
+1. Data: planned versus completed sessions (get_scheduled_workouts, get_activities_by_date), total load, get_wellness_trend for sleep, HRV, resting heart rate, Body Battery and lifestyle flags (illness, alcohol, travel), get_body_weight for the trend, get_muscle_work for which muscle groups the strength sessions trained and which were left out, and, if connected, calories and macros from the food diary against the day's goals.
 2. How it felt: ask me one short question about energy and any pain, and use my answers.
 3. Verdict: three bullets on what worked, one bullet on the single biggest limiting factor, with the evidence for it. Separate real signals (heart rate high at the same pace, several nights of poor sleep, HRV below baseline) from noise (one odd reading, a sensor artefact).
 4. Next week: at most three concrete changes with a measurable target each. Do not schedule anything without my yes.
@@ -300,7 +300,7 @@ Produce a one-page rule set: when to add volume or intensity and by how much, wh
         return _with_rules(f"""
 Design a {minutes}-minute strength / functional session. Equipment: {equipment or 'ask me'}. Focus: {focus or 'ask me, or pick from my weak points and running needs'}.
 
-Read the exercise catalog resource workout://reference/exercise-catalog and the structure reference workout://reference/structure so every step uses a real Garmin category and exercise name. Think about where this fits against my running week (not before a key run) and my recent load.
+Read the exercise catalog resource workout://reference/exercise-catalog and the structure reference workout://reference/structure so every step uses a real Garmin category and exercise name. Think about where this fits against my running week (not before a key run) and my recent load, and use get_muscle_work to see which muscle groups the last week left untrained.
 
 Show the session as a table (exercise, sets, reps or time, rest, intensity or weight). Warn me about any exercise that the watch will display under a different name. After my yes, upload it as a strength workout (a repeat structure for the sets) and offer to schedule it.
 """)

@@ -62,7 +62,7 @@ Tervezd meg az edzéshetemet, kezdés: [HÉT KEZDETE, pl. jövő hétfő]. Kül�
 ```text
 Értékeld az elmúlt [7] napomat edzőként.
 
-1. Adatok: tervezett és teljesített edzések (get_scheduled_workouts, get_activities_by_date), összterhelés, get_wellness_trend az alváshoz, HRV-hez, nyugalmi pulzushoz, Body Batteryhez és az életmód-jelölésekhez (betegség, alkohol, utazás), get_body_weight a súlytrendhez, és ha van étkezésnapló, a kalória és a makrók a napi célok mellett.
+1. Adatok: tervezett és teljesített edzések (get_scheduled_workouts, get_activities_by_date), összterhelés, get_wellness_trend az alváshoz, HRV-hez, nyugalmi pulzushoz, Body Batteryhez és az életmód-jelölésekhez (betegség, alkohol, utazás), get_body_weight a súlytrendhez, get_muscle_work arra, mely izomcsoportokat edzették az erősítő edzések és melyek maradtak ki, és ha van étkezésnapló, a kalória és a makrók a napi célok mellett.
 2. Hogy éreztem magam: tegyél fel egy rövid kérdést az energiaszintemről és a fájdalmakról, és használd a válaszomat.
 3. Ítélet: három pont arról, mi működött, egy pont a legnagyobb akadályozó tényezőről, bizonyítékkal. Különítsd el a valódi jelzéseket (magas pulzus ugyanazon a tempón, több rossz éjszaka, alapszint alatti HRV) a zajtól (egy furcsa érték, szenzorhiba).
 4. Jövő hét: legfeljebb három konkrét változtatás, mindegyikhez mérhető céllal. Jóváhagyásom nélkül semmit ne ütemezz.

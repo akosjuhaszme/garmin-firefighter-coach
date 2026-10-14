@@ -24,6 +24,7 @@ from garmin_workouts_mcp import recovery
 from garmin_workouts_mcp import weather
 from garmin_workouts_mcp import routes
 from garmin_workouts_mcp import tracking
+from garmin_workouts_mcp import strength
 from garmin_workouts_mcp import prompts
 
 # Prefer IPv4 for every outbound HTTP call this server makes (Garmin, OpenRouteService,
@@ -313,6 +314,7 @@ def main():
     recovery.configure(garmin_client)
     routes.configure(garmin_client)
     tracking.configure(garmin_client)
+    strength.configure(garmin_client)
 
     # Create the MCP app
     app = FastMCP(
@@ -334,6 +336,7 @@ def main():
     app = weather.register_tools(app)
     app = routes.register_tools(app)
     app = tracking.register_tools(app)
+    app = strength.register_tools(app)
 
     # Register the ready-made coaching prompts (first-run setup, weekly review, ...)
     app = prompts.register_prompts(app)
