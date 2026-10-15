@@ -193,6 +193,21 @@ async def test_create_private_with_goal_time(app, garth_fake):
 
 
 @pytest.mark.asyncio
+async def test_create_marks_race_without_making_it_public(app, garth_fake):
+    plain = await call_json(app, "create_calendar_event", {"name": "Fun run", "date": _in_days(210)})
+    assert plain["event"]["is_race"] is None  # nothing sent, nothing set
+    assert [c[0] for c in garth_fake.writes()] == ["POST"]
+
+    data = await call_json(app, "create_calendar_event", {
+        "name": "Real race", "date": _in_days(220), "is_race": True,
+    })
+    assert data["status"] == "created"
+    assert data["event"]["is_race"] is True
+    assert data["event"]["privacy"] == "PRIVATE"
+    assert garth_fake.store[data["event_id"]]["eventPrivacy"]["isDiscoverable"] is False
+
+
+@pytest.mark.asyncio
 async def test_create_refuses_duplicate_name_on_same_day(app, garth_fake):
     data = await call_json(app, "create_calendar_event", {
         "name": "  city   MARATHON ", "date": _in_days(100), "distance_km": 42.2,
@@ -269,6 +284,20 @@ async def test_update_goal_time_and_clear_it(app, garth_fake):
     cleared = await call_json(app, "update_calendar_event", {"event_id": 2, "clear_goal_time": True})
     assert cleared["changes"] == {"goal_time": {"from": "3:30:00", "to": None}}
     assert garth_fake.store[2]["eventCustomization"]["customGoal"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_race_flag_keeps_privacy(app, garth_fake):
+    garth_fake.store[4] = _event(4, "Half", _in_days(250), km=21.1)
+    garth_fake.store[4]["race"] = False
+    data = await call_json(app, "update_calendar_event", {"event_id": 4, "is_race": True})
+    assert data["status"] == "updated"
+    assert data["changes"] == {"is_race": {"from": False, "to": True}}
+    assert garth_fake.store[4]["race"] is True
+    assert garth_fake.store[4]["eventPrivacy"]["label"] == "PRIVATE"
+
+    off = await call_json(app, "update_calendar_event", {"event_id": 4, "is_race": False})
+    assert off["changes"] == {"is_race": {"from": True, "to": False}}
 
 
 @pytest.mark.asyncio

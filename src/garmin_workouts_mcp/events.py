@@ -217,6 +217,7 @@ def register_tools(app):
         longitude: Optional[float] = None,
         url: Optional[str] = None,
         note: Optional[str] = None,
+        is_race: bool = False,
     ) -> str:
         """Add ONE race / event to the Garmin Connect calendar (the Events feature)
 
@@ -225,8 +226,8 @@ def register_tools(app):
         written: the date must be today or later and less than a year ahead (Garmin
         refuses anything further out), and an event with the same name on the same
         date is reported instead of added a second time. Other events on that date are
-        listed as a warning. A goal time is set right after creation. Undo with
-        delete_calendar_event.
+        listed as a warning. The goal time and the race flag are set right after
+        creation. Undo with delete_calendar_event.
 
         Args:
             name: Event title, e.g. "City Half Marathon"
@@ -242,6 +243,8 @@ def register_tools(app):
             longitude: Optional start point longitude (decimal degrees)
             url: Optional event web page
             note: Optional free text
+            is_race: True marks the event as a race (the flag Garmin shows as "race" in
+                the calendar). It does not make the event public.
         """
         try:
             title = " ".join((name or "").split())
@@ -300,20 +303,23 @@ def register_tools(app):
             if others:
                 warnings.append(f"{len(others)} other event(s) are already on {day}")
             result = {"status": "created", "event_id": event_id}
-            if goal_seconds:
+            if goal_seconds or is_race:
                 status, detail = _get_event(event_id)
                 if status == 200 and isinstance(detail, dict):
-                    detail["eventCustomization"]["customGoal"] = {
-                        "value": float(goal_seconds), "unit": "second", "unitType": "time",
-                    }
+                    if goal_seconds:
+                        detail["eventCustomization"]["customGoal"] = {
+                            "value": float(goal_seconds), "unit": "second", "unitType": "time",
+                        }
+                    if is_race:
+                        detail["race"] = True
                     put_status, put_body = _request("PUT", f"calendar-service/event/{event_id}", json=detail)
                 else:
                     put_status, put_body = status, detail
                 if put_status not in (200, 204):
-                    result["status"] = "created_without_goal_time"
+                    result["status"] = "created_partly"
                     warnings.append(
-                        f"The event was added but the goal time was not saved ({_problem(put_body)}). "
-                        "Retry with update_calendar_event."
+                        "The event was added but the goal time / race flag was not saved "
+                        f"({_problem(put_body)}). Retry with update_calendar_event."
                     )
             status, final = _get_event(event_id)
             result["event"] = event_row(final if status == 200 and isinstance(final, dict) else created)
@@ -342,6 +348,7 @@ def register_tools(app):
         longitude: Optional[float] = None,
         url: Optional[str] = None,
         note: Optional[str] = None,
+        is_race: Optional[bool] = None,
     ) -> str:
         """Change fields of ONE existing calendar event (race)
 
@@ -351,8 +358,8 @@ def register_tools(app):
         Garmin afterwards. A new date must be today or later, less than a year ahead,
         and not collide with another event of the same name. Privacy cannot be changed
         here (use the Garmin app). Verified live on an event created through this
-        server; events added from Garmin's own event catalog are read back and checked
-        the same way.
+        server (including is_race on a private event); events added from Garmin's own
+        event catalog are read back and checked the same way.
 
         Args:
             event_id: The event's id from get_calendar_events
@@ -368,10 +375,13 @@ def register_tools(app):
             longitude: New start point longitude (give with latitude)
             url: New event web page
             note: New free text
+            is_race: True marks the event as a race, False removes the mark. It does
+                not change who can see the event.
         """
         try:
             changes_asked = [
                 name, date, start_time, distance_km, location, goal_time, event_type, latitude, url, note,
+                is_race,
             ]
             if not any(v is not None for v in changes_asked) and not clear_goal_time:
                 return "Error: nothing to change - pass at least one field"
@@ -414,6 +424,8 @@ def register_tools(app):
                 updated["url"] = url
             if note is not None:
                 updated["note"] = note
+            if is_race is not None:
+                updated["race"] = bool(is_race)
             if goal_time:
                 updated["eventCustomization"]["customGoal"] = {
                     "value": float(parse_goal(goal_time)), "unit": "second", "unitType": "time",
