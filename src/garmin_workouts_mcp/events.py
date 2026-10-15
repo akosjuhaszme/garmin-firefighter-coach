@@ -238,6 +238,7 @@ def catalog_row(item: dict) -> dict:
     km = _target_km(item.get("completionTarget"))
     return {
         "catalog_event_id": item.get("id"),
+        "catalog_uuid": item.get("shareableEventUuid"),
         "title": item.get("eventName"),
         "date": item.get("date"),
         "start_time": (item.get("eventStartTime") or {}).get("startTimeHhMm"),
@@ -250,6 +251,45 @@ def catalog_row(item: dict) -> dict:
         "official": item.get("official"),
         "url": item.get("url") or None,
     }
+
+
+# What the Garmin apps call "Hivatalos esemény" (OFFICIAL), "Ellenőrzött forrás" (VERIFIED, e.g. a
+# race published through a partner such as ahotu) and events added by Garmin Connect users (NONE).
+_SOURCE_NAMES = {"official": "OFFICIAL", "verified": "VERIFIED", "unverified": "NONE"}
+_EVENT_TYPE_ALIASES = {"triathlon": "multi_sport_triathlon", "motorcycling": "motorcycling_v2", "mtb": "mountain_biking"}
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def race_rows(item: dict) -> list:
+    """Rows for one race-search result: one row per distance the race offers (the Garmin
+    apps list each distance of a race separately)."""
+    area = item.get("administrativeArea") or {}
+    base = {
+        "catalog_uuid": item.get("garminEventUuid"),
+        "title": item.get("eventName"),
+        "date": item.get("eventDate"),
+        "start_time": (item.get("eventStartTime") or {}).get("startTimeHhMm"),
+        "event_type": item.get("eventType"),
+        "city": area.get("cityEn") or area.get("cityNative"),
+        "country": area.get("countryCode"),
+        "provider": item.get("provider"),
+        "verified_status": item.get("verifiedStatus"),
+        "official": item.get("isOfficial"),
+        "has_course": item.get("hasCourse"),
+        "url": item.get("eventUrl") or None,
+    }
+    rows = []
+    for target in item.get("completionTargets") or [None]:
+        km = _target_km(target)
+        rows.append({**base, "distance_km": round(km, 3) if km is not None else None})
+    return rows
+
+
+def fetch_race_search(client, **params) -> list:
+    """Raw results of Garmin's race search (race-search/events), the service behind the
+    "search for an event" screens of Garmin Connect and the phone app."""
+    params = {k: v for k, v in params.items() if v not in (None, "")}
+    return client.garth.get("connectapi", "race-search/events", params=params).json() or []
 
 
 def fetch_catalog(client, **params) -> list:
@@ -290,6 +330,84 @@ def _similar_events(own_rows: list, catalog: list, day: str, name: str, km: Opti
             listed.append({**catalog_row(item), "match": reason})
     listed.sort(key=lambda r: r.get("subscribers") or 0, reverse=True)
     return own, listed
+
+
+def _listed_by_uuid(rows: list, uuid: str):
+    wanted = (uuid or "").lower()
+    return next((r for r in rows if (r.get("shareableEventUuid") or "").lower() == wanted), None)
+
+
+def _organiser_event(rows: list, event_id):
+    """The calendar row of an event that belongs to an organiser (added from the catalog), or
+    None. Those are addressed by their UUID and the numeric event id is not served by GET."""
+    for row in rows:
+        if row.get("id") == int(event_id) and row.get("shareableEventUuid") and row.get("eventOrganizer") is False:
+            return row
+    return None
+
+
+def _set_goal_by_uuid(row: dict, goal_seconds):
+    """Set (or, with None, clear) the goal time of an organiser event on the calendar."""
+    custom = json.loads(json.dumps(row.get("eventCustomization") or {}))
+    custom["customGoal"] = (
+        {"value": float(goal_seconds), "unit": "second", "unitType": "time"} if goal_seconds else None
+    )
+    return _request("PUT", f"calendar-service/event/{row['shareableEventUuid']}/customization", json=custom)
+
+
+def _update_organiser_goal(row: dict, goal_time, clear_goal_time: bool, other_fields_given: bool) -> str:
+    """update_calendar_event for a race that came from the catalog: only the goal time is the
+    user's to change."""
+    before = event_row(row)
+    if other_fields_given:
+        return _dump({
+            "status": "organiser_event",
+            "message": "This race belongs to its organiser, so only goal_time (or clear_goal_time) can be changed. "
+                       "Nothing was changed.",
+            "event": before,
+        })
+    goal_seconds = parse_goal(goal_time) if goal_time else None
+    put_status, put_body = _set_goal_by_uuid(row, goal_seconds)
+    if put_status not in (200, 204):
+        return _dump({
+            "status": "failed",
+            "http_status": put_status,
+            "message": _problem(put_body),
+            "note": "The event was not changed.",
+        })
+    after_row = _listed_by_uuid(_events_around_today(), row["shareableEventUuid"])
+    if after_row is None:
+        return _dump({
+            "status": "updated_unverified",
+            "message": "Garmin accepted the change but the event could not be read back.",
+            "event_id": row.get("id"),
+        })
+    after = event_row(after_row)
+    changes = {k: {"from": before[k], "to": after[k]} for k in after if before.get(k) != after[k]}
+    result = {"status": "updated", "event_id": row.get("id"), "changes": changes, "event": after}
+    if after["goal_time"] != format_goal(goal_seconds):
+        result["status"] = "updated_partly"
+        result["warning"] = "Garmin did not keep the goal time as requested."
+    return _dump(result)
+
+
+def _remove_organiser_event(row: dict, confirm: bool) -> str:
+    """delete_calendar_event for a race that came from the catalog: stop following it. The
+    organiser's entry stays in the catalog and can be added again."""
+    event = event_row(row)
+    if not confirm:
+        return _dump({
+            "status": "confirmation_required",
+            "message": "Nothing was deleted. This race comes from the organiser's catalog entry; deleting it takes "
+                       "it off the user's calendar only (it can be added again with add_catalog_event_to_calendar). "
+                       "Ask the user whether this exact event should go, then call again with confirm=true.",
+            "event": event,
+        })
+    status, body = _request("DELETE", f"calendar-service/event/{row['shareableEventUuid']}/subscription")
+    if status not in (200, 204):
+        return _dump({"status": "failed", "http_status": status, "message": _problem(body), "event": event})
+    gone = _listed_by_uuid(_events_around_today(), row["shareableEventUuid"]) is None
+    return _dump({"status": "deleted" if gone else "delete_unverified", "event": event})
 
 
 def _usual_timezone(rows: list) -> Optional[str]:
@@ -338,8 +456,8 @@ def register_tools(app):
         event catalog beforehand, so the tool first looks for an event with a similar
         name on the same date, both on the user's calendar and in that catalog (see
         search_event_catalog). If it finds one it adds nothing and returns the matches:
-        show them to the user, because adding the organiser's published event in the
-        Garmin Connect app is usually better than a private copy. Repeat with
+        show them to the user, because adding the organiser's published event
+        (add_catalog_event_to_calendar) is usually better than a private copy. Repeat with
         create_anyway=true only after the user said a separate private event is wanted.
         An event with exactly the same name on the same date is never added twice.
         Other events on that date are listed as a warning. The goal time and the race
@@ -400,9 +518,9 @@ def register_tools(app):
                         "status": "similar_event_found",
                         "message": "An event with a similar name is already on this date; nothing was added. "
                                    "Show the matches to the user. An event published by the organiser "
-                                   "(catalog_matches) can be added in the Garmin Connect app and is usually better "
-                                   "than a private copy. Repeat with create_anyway=true only if the user wants a "
-                                   "separate private event anyway.",
+                                   "(catalog_matches) is usually better than a private copy: add it with "
+                                   "add_catalog_event_to_calendar(catalog_uuid) if the user agrees. Repeat with "
+                                   "create_anyway=true only if the user wants a separate private event anyway.",
                         "own_calendar_matches": own_similar,
                         "catalog_matches": catalog_similar[:10],
                     })
@@ -478,62 +596,188 @@ def register_tools(app):
         search_phrase: str = "",
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
-        event_type: Optional[str] = None,
+        min_km: Optional[float] = None,
+        max_km: Optional[float] = None,
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
         within_km: Optional[float] = None,
-        limit: int = 30,
+        source: Optional[str] = None,
+        provider: Optional[str] = None,
+        event_type: Optional[str] = None,
+        include_virtual: bool = False,
+        limit: int = 50,
     ) -> str:
-        """Search Garmin's catalog of races published by the organisers (read-only)
+        """Search Garmin's catalog of races published by organisers (read-only)
 
-        These are the events the Garmin Connect app offers under "add event": many
-        races are already there before anyone adds them by hand, with the organiser's
-        distance, start time and web page. The search is by words (accents and capitals
-        do not matter) over the event name and place. The catalog_event_id belongs to
-        the catalog and is NOT an event_id of the user's calendar. Nothing is added;
-        to put a catalog event on the calendar the user adds it in the Garmin Connect
-        app.
+        This is the same search as "Verseny keresése" / "search for an event" in the
+        Garmin Connect app and website. Many races are already there before anyone adds
+        them by hand, with the organiser's distance, start time and web page, so look
+        here first when the user asks about a race, an event abroad, or races of a
+        given distance near a place. Words match the event name and place (accents and
+        capitals do not matter, all words must match). A race that offers several
+        distances gets one row per distance. Nothing is added: put a result on the
+        calendar with add_catalog_event_to_calendar(catalog_uuid).
+
+        verified_status in the rows: OFFICIAL = "Hivatalos esemény" (official event),
+        VERIFIED = "Ellenőrzött forrás" (published by a verified provider such as
+        ahotu), NONE = added by Garmin Connect users. By default only OFFICIAL and
+        VERIFIED events are returned, as in the app.
 
         Args:
-            search_phrase: Words to look for, e.g. "springfield half marathon" (all words must match)
+            search_phrase: Words to look for, e.g. "springfield half marathon"
             from_date: First date, YYYY-MM-DD (default today)
-            to_date: Last date, YYYY-MM-DD (default 90 days after from_date)
-            event_type: Optional Garmin event type, e.g. "running"
+            to_date: Last date, YYYY-MM-DD (default one year after from_date)
+            min_km: Shortest distance in kilometres (e.g. 21 for half marathons and longer)
+            max_km: Longest distance in kilometres (e.g. 22 together with min_km=21)
             latitude: Optional centre of a place search (give with longitude and within_km)
             longitude: Optional centre of a place search
             within_km: Optional radius around latitude/longitude, in kilometres
-            limit: Most events to return (1-200, default 30)
+            source: Which events: "official", "verified", "unverified", a comma separated
+                mix like "official,verified", or "all" (default "official,verified")
+            provider: Optional provider key, e.g. "ahotu", "garmin-events", "active-events"
+                ("gc-discoverable-events" = events added by Garmin Connect users)
+            event_type: Optional event type as the app's filter offers it: running (all
+                running), trail_running, cycling (all cycling), gravel_cycling,
+                mountain_biking, swimming, multi_sport_triathlon (also accepted:
+                triathlon), multi_sport, hiking, walking, fitness_equipment,
+                motorcycling_v2, winter_sports, other; "all" or empty = any type
+            include_virtual: True also returns virtual events (default: in-person only)
+            limit: Most rows to return (1-200, default 50)
         """
         try:
             first = datetime.date.fromisoformat(from_date) if from_date else datetime.date.today()
-            last = datetime.date.fromisoformat(to_date) if to_date else first + datetime.timedelta(days=90)
+            last = datetime.date.fromisoformat(to_date) if to_date else first + datetime.timedelta(days=365)
             if last < first:
                 return "Error: to_date is before from_date"
             if (latitude is None) != (longitude is None) or (latitude is not None and not within_km):
                 return "Error: a place search needs latitude, longitude and within_km together"
+            if min_km is not None and max_km is not None and min_km > max_km:
+                return "Error: min_km is larger than max_km"
+            wanted = (source or "official,verified").replace(" ", "").casefold()
+            names = list(_SOURCE_NAMES) if wanted == "all" else [n for n in wanted.split(",") if n]
+            unknown = [n for n in names if n not in _SOURCE_NAMES]
+            if unknown or not names:
+                return "Error: source must be official, verified, unverified, a comma separated mix, or all"
             limit = max(1, min(int(limit), 200))
-            raw = fetch_catalog(
+            kind = (event_type or "all").strip().casefold()
+            kind = _EVENT_TYPE_ALIASES.get(kind, kind)
+            raw = fetch_race_search(
                 garmin_client,
                 fromDate=first.isoformat(),
                 toDate=last.isoformat(),
                 searchPhrase=" ".join((search_phrase or "").split()),
-                eventType=event_type,
+                eventType=None if kind == "all" else kind,
+                eventsProviders=provider,
+                includeInPerson="true",
+                includeVirtual="true" if include_virtual else "false",
+                verifiedStatuses=",".join(_SOURCE_NAMES[n] for n in names),
+                completionTargetDurationType="distance",
+                completionTargetMinValue=int(min_km * 1000) if min_km else None,
+                completionTargetMaxValue=int(max_km * 1000 + 0.999) if max_km else None,
                 poiLat=latitude,
                 poiLon=longitude,
                 withinMeters=int(within_km * 1000) if within_km else None,
-                limit=limit,
+                limit=200,
             )
-            rows = [catalog_row(item) for item in raw]
+            rows = [row for item in raw for row in race_rows(item)]
+            rows.sort(key=lambda r: (r.get("date") or "", r.get("title") or ""))
+            if min_km or max_km:  # the service also lists a race when only one of its distances fits
+                rows = [
+                    r for r in rows
+                    if r["distance_km"] is not None
+                    and (not min_km or r["distance_km"] >= min_km - 0.001)
+                    and (not max_km or r["distance_km"] <= max_km + 0.001)
+                ]
             if not rows:
                 return f"No catalog events found between {first} and {last} for that search."
-            result = {"count": len(rows), "events": rows}
-            if len(raw) >= limit:
-                result["note"] = "The list was cut at the limit; narrow the dates or the search words."
+            result = {"count": min(len(rows), limit), "events": rows[:limit]}
+            if len(rows) > limit or len(raw) >= 200:
+                result["note"] = "The list was cut; narrow the dates, the distance or the search words."
             return _dump(result)
         except ValueError:
             return "Error: dates must be YYYY-MM-DD"
         except Exception as e:
             return f"Error searching the event catalog: {str(e)}"
+
+    @app.tool()
+    async def add_catalog_event_to_calendar(catalog_uuid: str, goal_time: Optional[str] = None) -> str:
+        """Add ONE organiser-published race from Garmin's catalog to the user's calendar
+
+        Only call this when the user asked for this race to be added. Take catalog_uuid
+        from search_event_catalog (or from the catalog_matches that create_calendar_event
+        returns). This is the same as "Hozzáadás a naptárhoz" in the Garmin Connect app:
+        the organiser's own entry (name, distance, start time, web page, race flag) goes
+        onto the calendar and counts as one more follower of that race. Organiser events
+        are public by nature; if the user wants a private event use create_calendar_event.
+        An optional goal time is set right after. Nothing is added twice: if the race is
+        already on the calendar the tool says so. A private event of the user's own with a
+        similar name on the same date is reported as a warning (delete it with
+        delete_calendar_event if it was only a stand-in).
+
+        Args:
+            catalog_uuid: The catalog_uuid of the race (a UUID such as 3a9e2cd2-c211-4c6d-bde8-2b61ce98331f)
+            goal_time: Optional goal finish time as h:mm:ss (1:40:00) or h:mm (3:50)
+        """
+        try:
+            uuid = (catalog_uuid or "").strip().lower()
+            if not _UUID_RE.match(uuid):
+                return "Error: catalog_uuid must be a UUID from search_event_catalog"
+            goal_seconds = parse_goal(goal_time) if goal_time else None
+            rows = _events_around_today()
+            on_calendar = _listed_by_uuid(rows, uuid)
+            if on_calendar:
+                return _dump({
+                    "status": "already_on_calendar",
+                    "message": "This race is already on the calendar; nothing was added.",
+                    "event": event_row(on_calendar),
+                })
+            status, body = _request("POST", f"calendar-service/event/{uuid}/subscription")
+            if status not in (200, 201, 204):
+                return _dump({
+                    "status": "failed",
+                    "http_status": status,
+                    "message": _problem(body),
+                    "note": "Nothing was added.",
+                })
+            rows = _events_around_today()
+            added = _listed_by_uuid(rows, uuid)
+            if not added:
+                return _dump({
+                    "status": "added_unverified",
+                    "message": "Garmin accepted the request but the race is not in the calendar list yet.",
+                })
+            result = {"status": "added", "event_id": added.get("id")}
+            warnings = []
+            if goal_seconds:
+                put_status, put_body = _set_goal_by_uuid(added, goal_seconds)
+                if put_status not in (200, 204):
+                    result["status"] = "added_without_goal_time"
+                    warnings.append(
+                        f"The race was added but the goal time was not saved ({_problem(put_body)}). "
+                        "Retry with update_calendar_event."
+                    )
+                added = _listed_by_uuid(_events_around_today(), uuid) or added
+            added_km = _target_km(added.get("completionTarget"))
+            similar_own = []
+            for other in rows:
+                if other.get("id") == added.get("id") or other.get("date") != added.get("date"):
+                    continue
+                reason = similar_names(
+                    added.get("eventName"), other.get("eventName"), added_km, _target_km(other.get("completionTarget"))
+                )
+                if reason:
+                    similar_own.append({**event_row(other), "match": reason})
+            result["event"] = event_row(added)
+            if similar_own:
+                warnings.append("Your calendar also has a similar event on this date; it may be a stand-in for this race.")
+                result["similar_events_on_calendar"] = similar_own
+            if warnings:
+                result["warnings"] = warnings
+            return _dump(result)
+        except ValueError as e:
+            return f"Error: {e}"
+        except Exception as e:
+            return f"Error adding the catalog event: {str(e)}"
 
     @app.tool()
     async def update_calendar_event(
@@ -556,6 +800,8 @@ def register_tools(app):
 
         Only call this when the user asked for the change. Pass only the fields to
         change; everything else stays as it is. Get event_id from get_calendar_events.
+        A race that came from the organiser's catalog (added with
+        add_catalog_event_to_calendar) only allows goal_time / clear_goal_time.
         The result lists each change as from -> to and the event as read back from
         Garmin afterwards. A new date must be today or later, less than a year ahead,
         and not collide with another event of the same name. Privacy cannot be changed
@@ -594,6 +840,14 @@ def register_tools(app):
 
             status, detail = _get_event(event_id)
             if status == 404:
+                organiser = _organiser_event(_events_around_today(), event_id)
+                if organiser:
+                    return _update_organiser_goal(
+                        organiser, goal_time, clear_goal_time,
+                        any(v is not None for v in (
+                            name, date, start_time, distance_km, location, event_type, latitude, url, note, is_race,
+                        )),
+                    )
                 return _dump({"status": "not_found", "event_id": event_id})
             if status != 200 or not isinstance(detail, dict):
                 return _dump({"status": "failed", "http_status": status, "message": _problem(detail)})
@@ -683,8 +937,9 @@ def register_tools(app):
         Two steps. Without confirm=true nothing is deleted: the result shows which
         event would go. Show that to the user, and only after the user has explicitly
         agreed to deleting THIS event call again with confirm=true. Deleting cannot be
-        undone, but the event can be created again with create_calendar_event. Only
-        the calendar entry goes; activities and workouts are not touched.
+        undone, but the event can be created again with create_calendar_event (a race
+        from the organiser's catalog with add_catalog_event_to_calendar). Only the
+        calendar entry goes; activities and workouts are not touched.
 
         Args:
             event_id: The event's id from get_calendar_events
@@ -693,6 +948,9 @@ def register_tools(app):
         try:
             status, detail = _get_event(event_id)
             if status == 404:
+                organiser = _organiser_event(_events_around_today(), event_id)
+                if organiser:
+                    return _remove_organiser_event(organiser, confirm)
                 return _dump({
                     "status": "not_found",
                     "event_id": event_id,
