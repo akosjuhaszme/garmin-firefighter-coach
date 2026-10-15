@@ -34,6 +34,8 @@ def _response(status, body=None):
 class FakeGarth:
     def __init__(self, stored=()):
         self.store = {e["id"]: copy.deepcopy(e) for e in stored}
+        self.catalog = []  # organiser-published events (calendar-service/events/discover)
+        self.catalog_error = False
         self.calls = []
         self._ids = itertools.count(9000)
 
@@ -42,8 +44,18 @@ class FakeGarth:
         raise GarthHTTPError(msg="Error in request", error=HTTPError(response=response))
 
     def get(self, subdomain, path, params=None, **kw):
-        assert path == "calendar-service/events"
         self.calls.append(("GET", path))
+        if path == "calendar-service/events/discover":
+            if self.catalog_error:
+                self._fail(500, "catalog down")
+            words = (params.get("searchPhrase") or "").casefold().split()
+            rows = [
+                e for e in self.catalog
+                if params["fromDate"] <= e["date"] <= params["toDate"]
+                and all(w in e["eventName"].casefold() for w in words)
+            ]
+            return _response(200, copy.deepcopy(rows[: int(params.get("limit", 100))]))
+        assert path == "calendar-service/events"
         rows = [
             e for e in self.store.values()
             if params["startDate"] <= e["date"] <= params["endDate"]
@@ -93,6 +105,22 @@ def _event(event_id, name, date, km=42.2, goal=None, privacy="PRIVATE", zone="Eu
             "isPrimaryEvent": False,
         },
         "race": True,
+    }
+
+
+def _catalog_event(event_id, name, date, km=21.1, city="Springfield", subscribers=5, provider="ahotu"):
+    return {
+        "id": event_id,
+        "eventName": name,
+        "date": date,
+        "eventStartTime": {"startTimeHhMm": "08:00", "timeZoneId": "Europe/Paris"},
+        "url": "https://example.org/race",
+        "completionTarget": {"value": km * 1000, "unit": "meter", "unitType": "distance"},
+        "eventType": "running",
+        "subscribersCount": subscribers,
+        "administrativeArea": {"countryCode": "XX", "cityEn": city},
+        "eventsProvider": provider,
+        "official": False,
     }
 
 
@@ -150,6 +178,24 @@ def test_event_row_converts_units_and_reads_goal():
     assert row["goal_time"] == "0:08:00"
     assert row["privacy"] == "PRIVATE"
     assert row["event_id"] == 7
+
+
+@pytest.mark.parametrize("a, b, km_a, km_b, expected", [
+    ("Capital Air Half Marathon 2027", "Capital Air Half Marathon", 21.1, 21.098, True),
+    ("Capital Air Half Marathon 2027", "42. Capital Air Félmaratón", 21.1, 21.1, True),
+    ("Capital Air Half Marathon 2027", "Capitalair capital félmaraton", None, None, True),
+    ("Capital Air Half Marathon", "Capital Air Félmaraton", None, None, True),
+    ("City Half Marathon", "City Half Marathon 2027", None, None, True),
+    ("Alpine Trail", "alpine  trail!", None, None, True),
+    ("Capital Air Half Marathon", "The Big Half", 21.1, 21.1, False),
+    ("City Marathon", "River Marathon", 42.2, 42.2, False),
+    ("Capital Night Run", "Capital Air Half Marathon", 10, 21.1, False),
+    ("Capital Marathon", "Capital Marathon 10K", 42.2, 10, False),
+    ("Capital Marathon", "Capital Marathon 10K", None, None, True),
+    ("", "Capital Marathon", None, None, False),
+])
+def test_similar_names(a, b, km_a, km_b, expected):
+    assert bool(events.similar_names(a, b, km_a, km_b)) is expected
 
 
 # ----------------------------------------------------------------- read
@@ -218,6 +264,60 @@ async def test_create_refuses_duplicate_name_on_same_day(app, garth_fake):
 
 
 @pytest.mark.asyncio
+async def test_create_stops_when_the_catalog_already_has_the_race(app, garth_fake):
+    day = _in_days(200)
+    garth_fake.catalog = [
+        _catalog_event(501, "Capital Air Half Marathon", day, subscribers=74),
+        _catalog_event(502, "42. Capital Air Félmaratón", day, km=21.1, subscribers=3),
+        _catalog_event(503, "Capital Air Half Marathon", _in_days(201)),  # other date
+        _catalog_event(504, "Capital Air 10K", day, km=10),  # other distance
+        _catalog_event(505, "Seaside Half Marathon", day),  # other race
+    ]
+    args = {"name": "Capital Air Félmaraton 2027", "date": day, "distance_km": 21.1}
+    data = await call_json(app, "create_calendar_event", args)
+    assert data["status"] == "similar_event_found"
+    assert [m["catalog_event_id"] for m in data["catalog_matches"]] == [501, 502]  # most subscribers first
+    assert data["catalog_matches"][0]["distance_km"] == 21.1
+    assert data["catalog_matches"][0]["city"] == "Springfield"
+    assert data["own_calendar_matches"] == []
+    assert garth_fake.writes() == []
+
+    # the user agreed to a separate private event
+    done = await call_json(app, "create_calendar_event", {**args, "create_anyway": True})
+    assert done["status"] == "created"
+    assert [c[0] for c in garth_fake.writes()] == ["POST"]
+
+
+@pytest.mark.asyncio
+async def test_create_ignores_unrelated_catalog_events(app, garth_fake):
+    day = _in_days(200)
+    garth_fake.catalog = [_catalog_event(601, "Seaside Half Marathon", day), _catalog_event(602, "Mountain 50K", day, km=50)]
+    data = await call_json(app, "create_calendar_event", {"name": "Capital Air Half", "date": day, "distance_km": 21.1})
+    assert data["status"] == "created"
+
+
+@pytest.mark.asyncio
+async def test_create_stops_on_similar_event_in_own_calendar(app, garth_fake):
+    day = _in_days(100)  # "City Marathon" is on the calendar that day
+    data = await call_json(app, "create_calendar_event", {"name": "City Marathon 2027", "date": day, "distance_km": 42.2})
+    assert data["status"] == "similar_event_found"
+    assert data["own_calendar_matches"][0]["event_id"] == 1
+    assert data["own_calendar_matches"][0]["match"] == "same name"
+    assert garth_fake.writes() == []
+
+
+@pytest.mark.asyncio
+async def test_create_stops_when_the_catalog_cannot_be_checked(app, garth_fake):
+    garth_fake.catalog_error = True
+    args = {"name": "Capital Air Half", "date": _in_days(200)}
+    data = await call_json(app, "create_calendar_event", args)
+    assert data["status"] == "check_failed"
+    assert garth_fake.writes() == []
+    done = await call_json(app, "create_calendar_event", {**args, "create_anyway": True})
+    assert done["status"] == "created"
+
+
+@pytest.mark.asyncio
 async def test_create_warns_about_other_event_that_day(app):
     data = await call_json(app, "create_calendar_event", {
         "name": "Shakeout 5k", "date": _in_days(100), "distance_km": 5,
@@ -268,6 +368,43 @@ async def test_create_without_known_time_zone_asks_for_one(garth_fake):
         "name": "First", "date": _in_days(30), "timezone_id": "Europe/Paris",
     })
     assert data["status"] == "created"
+
+
+# -------------------------------------------------------------- catalog
+
+
+@pytest.mark.asyncio
+async def test_search_event_catalog(app, garth_fake):
+    garth_fake.catalog = [
+        _catalog_event(701, "Capital Air Half Marathon", _in_days(200), subscribers=74),
+        _catalog_event(702, "Seaside Half Marathon", _in_days(210)),
+        _catalog_event(703, "Capital Air Half Marathon", _in_days(400)),  # outside the default 90 days window
+    ]
+    data = await call_json(app, "search_event_catalog", {
+        "search_phrase": "capital air", "from_date": _in_days(150), "to_date": _in_days(260),
+    })
+    assert data["count"] == 1
+    row = data["events"][0]
+    assert row["catalog_event_id"] == 701
+    assert row["distance_km"] == 21.1
+    assert row["start_time"] == "08:00"
+    assert row["subscribers"] == 74
+    assert row["provider"] == "ahotu"
+    assert "event_id" not in row  # not an id of the user's calendar
+    assert garth_fake.writes() == []
+
+    none = await call(app, "search_event_catalog", {"search_phrase": "nothing like this"})
+    assert none.startswith("No catalog events")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("args, fragment", [
+    ({"from_date": "soon"}, "YYYY-MM-DD"),
+    ({"from_date": "2027-02-02", "to_date": "2027-01-01"}, "before"),
+    ({"latitude": 47.5, "longitude": 19.0}, "within_km"),
+])
+async def test_search_event_catalog_rejects_bad_input(app, args, fragment):
+    assert fragment in await call(app, "search_event_catalog", args)
 
 
 # --------------------------------------------------------------- update

@@ -12,8 +12,10 @@ rejects a new event that is a year or more in the future.
 """
 import calendar
 import datetime
+import difflib
 import json
 import re
+import unicodedata
 from typing import Optional
 
 from garth.exc import GarthHTTPError
@@ -183,6 +185,113 @@ def _same_day_report(rows: list, date: str, name: str, skip_id=None):
     return duplicate, others
 
 
+# Words that say "this is a race" but not WHICH race, so they never count as a match
+# on their own ("Capital Air Half Marathon" and "Seaside Half Marathon").
+_GENERIC_WORDS = {
+    "the", "and", "of", "half", "marathon", "halfmarathon", "maraton", "felmaraton",
+    "polmaraton", "run", "running", "race", "edition", "km",
+}
+
+
+def _name_tokens(name: Optional[str]) -> list:
+    """Lower-case words without accents or punctuation ('Félmaratón' -> 'felmaraton')."""
+    plain = unicodedata.normalize("NFKD", name or "")
+    plain = "".join(ch for ch in plain if not unicodedata.combining(ch)).casefold()
+    return [t for t in re.sub(r"[^0-9a-z]+", " ", plain).split() if not t.isdigit() and len(t) > 1]
+
+
+def similar_names(a: Optional[str], b: Optional[str], km_a=None, km_b=None) -> Optional[str]:
+    """Why two event names look like the same event, or None when they do not.
+
+    Accent, case and punctuation do not matter, edition numbers and years are
+    ignored, 'Capital Air' and 'Capitalair' count as the same. Two names that give clearly
+    different distances (more than 12 % apart) are different events."""
+    tokens_a, tokens_b = _name_tokens(a), _name_tokens(b)
+    if not tokens_a or not tokens_b:
+        return None
+    if tokens_a == tokens_b:
+        return "same name"
+    if km_a and km_b and abs(km_a - km_b) > 0.12 * max(km_a, km_b):
+        return None
+    key_a = [t for t in tokens_a if t not in _GENERIC_WORDS]
+    key_b = [t for t in tokens_b if t not in _GENERIC_WORDS]
+    joined_a, joined_b = "".join(key_a), "".join(key_b)
+    if min(len(joined_a), len(joined_b)) >= 6 and (joined_a in joined_b or joined_b in joined_a):
+        return "same key words"
+    shared = sorted(set(key_a) & set(key_b))
+    if len(shared) >= 2 or (len(shared) == 1 and len(shared[0]) >= 5):
+        return "shared words: " + ", ".join(shared)
+    if difflib.SequenceMatcher(None, " ".join(tokens_a), " ".join(tokens_b)).ratio() >= 0.8:
+        return "very similar wording"
+    return None
+
+
+def _target_km(target: Optional[dict]) -> Optional[float]:
+    target = target or {}
+    factor = _KM_PER_UNIT.get(target.get("unit"))
+    return target.get("value") * factor if target.get("value") is not None and factor else None
+
+
+def catalog_row(item: dict) -> dict:
+    """One event from Garmin's catalog of organiser-published events."""
+    area = item.get("administrativeArea") or {}
+    km = _target_km(item.get("completionTarget"))
+    return {
+        "catalog_event_id": item.get("id"),
+        "title": item.get("eventName"),
+        "date": item.get("date"),
+        "start_time": (item.get("eventStartTime") or {}).get("startTimeHhMm"),
+        "event_type": item.get("eventType"),
+        "distance_km": round(km, 3) if km is not None else None,
+        "city": area.get("cityEn") or area.get("cityNative"),
+        "country": area.get("countryCode"),
+        "provider": item.get("eventsProvider"),
+        "subscribers": item.get("subscribersCount"),
+        "official": item.get("official"),
+        "url": item.get("url") or None,
+    }
+
+
+def fetch_catalog(client, **params) -> list:
+    """Raw events from Garmin's catalog of organiser-published events
+    (calendar-service/events/discover). Parameters are Garmin's own names: fromDate,
+    toDate, searchPhrase, eventType, poiLat, poiLon, withinMeters, limit (max 1000)."""
+    params = {k: v for k, v in params.items() if v not in (None, "")}
+    return client.garth.get("connectapi", "calendar-service/events/discover", params=params).json() or []
+
+
+def _catalog_for_day(day: str, name: str) -> list:
+    """Every catalog event on one date. Garmin returns at most 1000 per request; on a
+    day that busy the list is topped up with searches for the words of the name."""
+    found = {r["id"]: r for r in fetch_catalog(garmin_client, fromDate=day, toDate=day, limit=1000)}
+    if len(found) >= 1000:
+        for word in sorted({t for t in _name_tokens(name) if t not in _GENERIC_WORDS}):
+            for r in fetch_catalog(garmin_client, fromDate=day, toDate=day, searchPhrase=word, limit=1000):
+                found.setdefault(r["id"], r)
+    return list(found.values())
+
+
+def _similar_events(own_rows: list, catalog: list, day: str, name: str, km: Optional[float]):
+    """(similar events on the user's calendar, similar catalog events) for one date.
+    Exact same-name events on the calendar are handled before this."""
+    own = []
+    for row in own_rows:
+        if row.get("date") != day or _same_name(row.get("eventName"), name):
+            continue
+        reason = similar_names(name, row.get("eventName"), km, _target_km(row.get("completionTarget")))
+        if reason:
+            own.append({**event_row(row), "match": reason})
+    listed = []
+    for item in catalog:
+        if item.get("date") != day:
+            continue
+        reason = similar_names(name, item.get("eventName"), km, _target_km(item.get("completionTarget")))
+        if reason:
+            listed.append({**catalog_row(item), "match": reason})
+    listed.sort(key=lambda r: r.get("subscribers") or 0, reverse=True)
+    return own, listed
+
+
 def _usual_timezone(rows: list) -> Optional[str]:
     zones = [(r.get("eventTimeLocal") or {}).get("timeZoneId") for r in rows]
     zones = [z for z in zones if z]
@@ -218,16 +327,23 @@ def register_tools(app):
         url: Optional[str] = None,
         note: Optional[str] = None,
         is_race: bool = False,
+        create_anyway: bool = False,
     ) -> str:
         """Add ONE race / event to the Garmin Connect calendar (the Events feature)
 
         Only call this when the user asked for this event to be added. The event is
         always created PRIVATE (visible to the user only). Checks before anything is
         written: the date must be today or later and less than a year ahead (Garmin
-        refuses anything further out), and an event with the same name on the same
-        date is reported instead of added a second time. Other events on that date are
-        listed as a warning. The goal time and the race flag are set right after
-        creation. Undo with delete_calendar_event.
+        refuses anything further out). Organisers often publish their race in Garmin's
+        event catalog beforehand, so the tool first looks for an event with a similar
+        name on the same date, both on the user's calendar and in that catalog (see
+        search_event_catalog). If it finds one it adds nothing and returns the matches:
+        show them to the user, because adding the organiser's published event in the
+        Garmin Connect app is usually better than a private copy. Repeat with
+        create_anyway=true only after the user said a separate private event is wanted.
+        An event with exactly the same name on the same date is never added twice.
+        Other events on that date are listed as a warning. The goal time and the race
+        flag are set right after creation. Undo with delete_calendar_event.
 
         Args:
             name: Event title, e.g. "City Half Marathon"
@@ -245,6 +361,8 @@ def register_tools(app):
             note: Optional free text
             is_race: True marks the event as a race (the flag Garmin shows as "race" in
                 the calendar). It does not make the event public.
+            create_anyway: True skips the similar-event check (only after the user
+                agreed to a separate private event)
         """
         try:
             title = " ".join((name or "").split())
@@ -266,6 +384,28 @@ def register_tools(app):
                                "Use update_calendar_event to change it.",
                     "existing_event": event_row(duplicate),
                 })
+            if not create_anyway:
+                try:
+                    own_similar, catalog_similar = _similar_events(
+                        rows, _catalog_for_day(day, title), day, title, km
+                    )
+                except Exception as e:
+                    return _dump({
+                        "status": "check_failed",
+                        "message": f"Could not check Garmin's event catalog ({str(e)[:200]}). Nothing was added. "
+                                   "Try again, or repeat with create_anyway=true if the user wants to skip the check.",
+                    })
+                if own_similar or catalog_similar:
+                    return _dump({
+                        "status": "similar_event_found",
+                        "message": "An event with a similar name is already on this date; nothing was added. "
+                                   "Show the matches to the user. An event published by the organiser "
+                                   "(catalog_matches) can be added in the Garmin Connect app and is usually better "
+                                   "than a private copy. Repeat with create_anyway=true only if the user wants a "
+                                   "separate private event anyway.",
+                        "own_calendar_matches": own_similar,
+                        "catalog_matches": catalog_similar[:10],
+                    })
             zone = timezone_id or _usual_timezone(rows)
             if not zone:
                 return "Error: no time zone known yet - pass timezone_id (e.g. the zone Garmin shows for your events)"
@@ -332,6 +472,68 @@ def register_tools(app):
             return f"Error: {e}"
         except Exception as e:
             return f"Error creating calendar event: {str(e)}"
+
+    @app.tool()
+    async def search_event_catalog(
+        search_phrase: str = "",
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        event_type: Optional[str] = None,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        within_km: Optional[float] = None,
+        limit: int = 30,
+    ) -> str:
+        """Search Garmin's catalog of races published by the organisers (read-only)
+
+        These are the events the Garmin Connect app offers under "add event": many
+        races are already there before anyone adds them by hand, with the organiser's
+        distance, start time and web page. The search is by words (accents and capitals
+        do not matter) over the event name and place. The catalog_event_id belongs to
+        the catalog and is NOT an event_id of the user's calendar. Nothing is added;
+        to put a catalog event on the calendar the user adds it in the Garmin Connect
+        app.
+
+        Args:
+            search_phrase: Words to look for, e.g. "springfield half marathon" (all words must match)
+            from_date: First date, YYYY-MM-DD (default today)
+            to_date: Last date, YYYY-MM-DD (default 90 days after from_date)
+            event_type: Optional Garmin event type, e.g. "running"
+            latitude: Optional centre of a place search (give with longitude and within_km)
+            longitude: Optional centre of a place search
+            within_km: Optional radius around latitude/longitude, in kilometres
+            limit: Most events to return (1-200, default 30)
+        """
+        try:
+            first = datetime.date.fromisoformat(from_date) if from_date else datetime.date.today()
+            last = datetime.date.fromisoformat(to_date) if to_date else first + datetime.timedelta(days=90)
+            if last < first:
+                return "Error: to_date is before from_date"
+            if (latitude is None) != (longitude is None) or (latitude is not None and not within_km):
+                return "Error: a place search needs latitude, longitude and within_km together"
+            limit = max(1, min(int(limit), 200))
+            raw = fetch_catalog(
+                garmin_client,
+                fromDate=first.isoformat(),
+                toDate=last.isoformat(),
+                searchPhrase=" ".join((search_phrase or "").split()),
+                eventType=event_type,
+                poiLat=latitude,
+                poiLon=longitude,
+                withinMeters=int(within_km * 1000) if within_km else None,
+                limit=limit,
+            )
+            rows = [catalog_row(item) for item in raw]
+            if not rows:
+                return f"No catalog events found between {first} and {last} for that search."
+            result = {"count": len(rows), "events": rows}
+            if len(raw) >= limit:
+                result["note"] = "The list was cut at the limit; narrow the dates or the search words."
+            return _dump(result)
+        except ValueError:
+            return "Error: dates must be YYYY-MM-DD"
+        except Exception as e:
+            return f"Error searching the event catalog: {str(e)}"
 
     @app.tool()
     async def update_calendar_event(
