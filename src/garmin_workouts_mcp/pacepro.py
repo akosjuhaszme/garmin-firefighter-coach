@@ -8,10 +8,12 @@ and create or delete one for a flat distance (no course).
 
 What is known and what is not: the list and the endpoints were checked against the
 account, and the body of a new plan was learned from the server's own validation
-messages (nothing was created while doing that). Creating a plan with a real body has
-not been exercised live yet; the first real save is the test. The Garmin website
-computes the split paces in the browser and the server stores what it is sent, so the
-splits are computed here.
+messages (nothing was created while doing that). An even-pace plan made with
+create_pacepro_plan was checked live: Garmin accepted it, read it back unchanged and the
+Garmin Connect app showed it correctly (name, distance, goal time, target pace, the
+splits and the strategy slider in the middle). Plans with a negative or positive split
+(manualPaceEdit) have not been tried yet. The Garmin website computes the split paces in
+the browser and the server stores what it is sent, so the splits are computed here.
 """
 import json
 import re
@@ -240,10 +242,11 @@ def register_tools(app):
         (the target pace and elapsed time for every split). Show that to the user, and call
         again with save=true only when the user agreed to saving it. A plan with the same
         name is never created twice. Not for courses with hills: the hill-adjusted paces of
-        a course are computed by Garmin's own editor and are not reproduced here. The first
-        real save of a plan has not been exercised against Garmin yet; if Garmin refuses
-        the body its message is returned and nothing is stored. Sending the plan to the
-        watch is not done here (do it in Garmin Connect, or ask the user).
+        a course are computed by Garmin's own editor and are not reproduced here. An
+        even-pace plan was saved and shown correctly in Garmin Connect; plans with a negative
+        or positive split have not been tried yet. If Garmin refuses the body its message is
+        returned and nothing is stored. Sending the plan to the watch is not done here (do it
+        in Garmin Connect, or ask the user).
 
         Args:
             name: Plan name, e.g. "City Half 1:42"
