@@ -11,9 +11,12 @@ account, and the body of a new plan was learned from the server's own validation
 messages (nothing was created while doing that). An even-pace plan made with
 create_pacepro_plan was checked live: Garmin accepted it, read it back unchanged and the
 Garmin Connect app showed it correctly (name, distance, goal time, target pace, the
-splits and the strategy slider in the middle). Plans with a negative or positive split
-(manualPaceEdit) have not been tried yet. The Garmin website computes the split paces in
-the browser and the server stores what it is sent, so the splits are computed here.
+splits and the strategy slider in the middle). A negative-split plan (5:03/km for the
+first half, 4:57/km for the second, stored with manualPaceEdit) was saved, read back
+unchanged and shown with exactly those splits and a stepped pace chart; the app then
+shows an "edit" link in place of the strategy slider. The Garmin website computes the
+split paces in the browser and the server stores what it is sent, so the splits are
+computed here.
 """
 import json
 import re
@@ -242,11 +245,12 @@ def register_tools(app):
         (the target pace and elapsed time for every split). Show that to the user, and call
         again with save=true only when the user agreed to saving it. A plan with the same
         name is never created twice. Not for courses with hills: the hill-adjusted paces of
-        a course are computed by Garmin's own editor and are not reproduced here. An
-        even-pace plan was saved and shown correctly in Garmin Connect; plans with a negative
-        or positive split have not been tried yet. If Garmin refuses the body its message is
-        returned and nothing is stored. Sending the plan to the watch is not done here (do it
-        in Garmin Connect, or ask the user).
+        a course are computed by Garmin's own editor and are not reproduced here. Even-pace
+        and negative-split plans were saved and shown correctly in Garmin Connect (a split
+        plan is stored as manually edited, so the app shows an edit link instead of its
+        strategy slider; editing the strategy there would replace these splits). If Garmin
+        refuses the body its message is returned and nothing is stored. Sending the plan to
+        the watch is not done here (do it in Garmin Connect, or ask the user).
 
         Args:
             name: Plan name, e.g. "City Half 1:42"
