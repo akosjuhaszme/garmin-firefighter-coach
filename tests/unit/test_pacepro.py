@@ -34,6 +34,9 @@ class FakePaceBands:
         self.store = {}
         self.calls = []
         self._ids = itertools.count(500)
+        self.devices = [{"deviceId": 111, "productDisplayName": "watch one", "primary": True}]
+        self.send_status = 200
+        self.sent = []
 
     def _fail(self, status, body):
         raise GarthHTTPError(msg="Error in request", error=HTTPError(response=_response(status, body)))
@@ -62,6 +65,16 @@ class FakePaceBands:
 
     def request(self, method, subdomain, path, api=False, json=None, **kw):
         self.calls.append((method, path))
+        if path == "device-service/deviceregistration/devices" and method == "GET":
+            return _response(200, copy.deepcopy(self.devices))
+        if "/device/" in path and method == "POST":  # course-service/pacebands/{id}/device/{deviceId}
+            plan_id, device_id = int(path.split("/")[2]), int(path.split("/")[4])
+            if plan_id not in self.store:
+                self._fail(404, {"message": "not found"})
+            if self.send_status >= 400:
+                self._fail(self.send_status, {"message": "device refused"})
+            self.sent.append((plan_id, device_id))
+            return _response(self.send_status)
         if path == "course-service/pacebands" and method == "GET":
             return _response(200, copy.deepcopy(list(self.store.values())))
         if path == "course-service/pacebands" and method == "POST":
@@ -257,6 +270,63 @@ async def test_get_pacepro_plans(app, fake):
     detail = await call_json(app, "get_pacepro_plans", {"plan_id": 500})
     assert detail["plan"]["split_type"] == "DISTANCE_KILOMETER" and len(detail["splits"]) == 22
     assert (await call_json(app, "get_pacepro_plans", {"plan_id": 999}))["status"] == "not_found"
+
+
+async def _saved_plan(app):
+    data = await call_json(app, "create_pacepro_plan", {"name": "City Half", "distance": "half", "goal_time": "1:42:00", "save": True})
+    return data["plan"]["plan_id"]
+
+
+@pytest.mark.asyncio
+async def test_send_goes_to_the_primary_device(app, fake):
+    plan_id = await _saved_plan(app)
+    fake.devices = [
+        {"deviceId": 222, "productDisplayName": "scale", "primary": False},
+        {"deviceId": 111, "productDisplayName": "watch one", "primary": True},
+    ]
+    data = await call_json(app, "send_pacepro_plan_to_watch", {"plan_id": plan_id})
+    assert data["status"] == "sent"
+    assert data["device"] == {"device_id": 111, "name": "watch one", "primary": True}
+    assert data["plan"]["name"] == "City Half"
+    assert fake.sent == [(plan_id, 111)]
+    assert fake.calls[-1] == ("POST", f"course-service/pacebands/{plan_id}/device/111")
+
+
+@pytest.mark.asyncio
+async def test_send_to_a_chosen_device_and_device_checks(app, fake):
+    plan_id = await _saved_plan(app)
+    fake.devices = [
+        {"deviceId": 111, "productDisplayName": "watch one", "primary": False},
+        {"deviceId": 222, "productDisplayName": "watch two", "primary": False},
+    ]
+    needed = await call_json(app, "send_pacepro_plan_to_watch", {"plan_id": plan_id})
+    assert needed["status"] == "device_needed" and len(needed["devices"]) == 2
+    unknown = await call_json(app, "send_pacepro_plan_to_watch", {"plan_id": plan_id, "device_id": 999})
+    assert unknown["status"] == "unknown_device"
+    assert fake.sent == []
+    chosen = await call_json(app, "send_pacepro_plan_to_watch", {"plan_id": plan_id, "device_id": 222})
+    assert chosen["status"] == "sent" and fake.sent == [(plan_id, 222)]
+
+
+@pytest.mark.asyncio
+async def test_send_with_a_single_unmarked_device_uses_it(app, fake):
+    plan_id = await _saved_plan(app)
+    fake.devices = [{"deviceId": 333, "productDisplayName": "only watch"}]
+    assert (await call_json(app, "send_pacepro_plan_to_watch", {"plan_id": plan_id}))["status"] == "sent"
+    assert fake.sent == [(plan_id, 333)]
+
+
+@pytest.mark.asyncio
+async def test_send_failures_do_not_pretend(app, fake):
+    plan_id = await _saved_plan(app)
+    assert (await call_json(app, "send_pacepro_plan_to_watch", {"plan_id": 12345}))["status"] == "not_found"
+    fake.devices = []
+    assert (await call_json(app, "send_pacepro_plan_to_watch", {"plan_id": plan_id}))["status"] == "failed"
+    fake.devices = [{"deviceId": 111, "productDisplayName": "watch one", "primary": True}]
+    fake.send_status = 500
+    data = await call_json(app, "send_pacepro_plan_to_watch", {"plan_id": plan_id})
+    assert data["status"] == "failed" and data["http_status"] == 500 and "refused" in data["message"]
+    assert fake.sent == []
 
 
 @pytest.mark.asyncio

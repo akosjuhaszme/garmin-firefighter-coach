@@ -16,7 +16,8 @@ first half, 4:57/km for the second, stored with manualPaceEdit) was saved, read 
 unchanged and shown with exactly those splits and a stepped pace chart; the app then
 shows an "edit" link in place of the strategy slider. The Garmin website computes the
 split paces in the browser and the server stores what it is sent, so the splits are
-computed here.
+computed here. send_pacepro_plan_to_watch uses the app's own "send to device" call
+(POST course-service/pacebands/{id}/device/{deviceId}).
 """
 import json
 import re
@@ -249,8 +250,8 @@ def register_tools(app):
         and negative-split plans were saved and shown correctly in Garmin Connect (a split
         plan is stored as manually edited, so the app shows an edit link instead of its
         strategy slider; editing the strategy there would replace these splits). If Garmin
-        refuses the body its message is returned and nothing is stored. Sending the plan to
-        the watch is not done here (do it in Garmin Connect, or ask the user).
+        refuses the body its message is returned and nothing is stored. Putting the plan on
+        the watch is a separate step (send_pacepro_plan_to_watch, only when the user asks).
 
         Args:
             name: Plan name, e.g. "City Half 1:42"
@@ -337,6 +338,72 @@ def register_tools(app):
             return f"Error: {e}"
         except Exception as e:
             return f"Error creating PacePro plan: {str(e)}"
+
+    @app.tool()
+    async def send_pacepro_plan_to_watch(plan_id: int, device_id: Optional[int] = None) -> str:
+        """Send ONE saved PacePro plan to the user's Garmin watch
+
+        Only call this when the user asked for the plan to go to the watch. This is the
+        "send to device" of the Garmin Connect app: the plan is queued for the watch and
+        arrives at its next sync (opening Garmin Connect on the phone starts one). Without
+        device_id the primary device of the account is used. The plan stays on the Garmin
+        account either way. Sending the same plan again is harmless.
+
+        Args:
+            plan_id: The plan id from get_pacepro_plans
+            device_id: Optional device id; by default the primary device (the result lists the devices)
+        """
+        try:
+            status, body = _request("GET", f"course-service/pacebands/{int(plan_id)}")
+            if status == 404:
+                return _dump({"status": "not_found", "plan_id": plan_id})
+            if status != 200 or not isinstance(body, dict):
+                return _dump({"status": "failed", "http_status": status, "message": _problem(body)})
+            plan = _summary_row(body.get("paceBandSummary") or {}, len(body.get("paceBandSplits") or []))
+
+            status, devices = _request("GET", "device-service/deviceregistration/devices")
+            if status != 200 or not isinstance(devices, list) or not devices:
+                return _dump({"status": "failed", "http_status": status, "message": "No registered device found", "plan": plan})
+            listed = [
+                {"device_id": d.get("deviceId"), "name": d.get("productDisplayName") or d.get("displayName"),
+                 "primary": bool(d.get("primary"))}
+                for d in devices
+            ]
+            if device_id is not None:
+                target = next((d for d in listed if d["device_id"] == int(device_id)), None)
+                if target is None:
+                    return _dump({"status": "unknown_device", "message": "That device id is not on the account.", "devices": listed})
+            else:
+                primary = [d for d in listed if d["primary"]]
+                if len(primary) == 1:
+                    target = primary[0]
+                elif len(listed) == 1:
+                    target = listed[0]
+                else:
+                    return _dump({"status": "device_needed", "message": "Pass device_id: no single primary device.", "devices": listed})
+
+            send_status, send_body = _request(
+                "POST", f"course-service/pacebands/{int(plan_id)}/device/{int(target['device_id'])}"
+            )
+            if send_status not in (200, 201, 202, 204):
+                return _dump({
+                    "status": "failed",
+                    "http_status": send_status,
+                    "message": _problem(send_body),
+                    "plan": plan,
+                    "device": target,
+                })
+            result = {
+                "status": "sent",
+                "message": "The plan is queued for the watch; it arrives at the next sync (open Garmin Connect on the phone).",
+                "plan": plan,
+                "device": target,
+            }
+            if send_body:
+                result["garmin_response"] = send_body
+            return _dump(result)
+        except Exception as e:
+            return f"Error sending the PacePro plan to the watch: {str(e)}"
 
     @app.tool()
     async def delete_pacepro_plan(plan_id: int, confirm: bool = False) -> str:
