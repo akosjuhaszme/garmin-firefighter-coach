@@ -17,7 +17,8 @@ unchanged and shown with exactly those splits and a stepped pace chart; the app 
 shows an "edit" link in place of the strategy slider. The Garmin website computes the
 split paces in the browser and the server stores what it is sent, so the splits are
 computed here. send_pacepro_plan_to_watch uses the app's own "send to device" call
-(POST course-service/pacebands/{id}/device/{deviceId}).
+(POST course-service/pacebands/{id}/device/{deviceId}, no body); checked live, the plan
+appeared on a fenix 7 after the next sync.
 """
 import json
 import re

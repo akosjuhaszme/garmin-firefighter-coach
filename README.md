@@ -192,7 +192,7 @@ This MCP server implements tools for the following domains:
 
 - ✅ **PacePro** — 1 read and 3 write tools 🎯
   - 📋 `get_pacepro_plans` — list the PacePro plans, or one plan with every split
-  - ⌚ `send_pacepro_plan_to_watch` — queue a saved plan for the primary watch (the app's own "send to device", `POST course-service/pacebands/{id}/device/{deviceId}`); it arrives at the next sync
+  - ⌚ `send_pacepro_plan_to_watch` — queue a saved plan for the primary watch (the app's own "send to device", `POST course-service/pacebands/{id}/device/{deviceId}`, no body); it arrives at the next sync. Checked live: the plan showed up on a fenix 7 after the sync
   - ➕ `create_pacepro_plan` — plan a flat distance: goal time, km or mile splits, even or negative/positive split; preview first, `save=true` to store
   - 🗑️ `delete_pacepro_plan` — delete one plan, only after an explicit `confirm=true`
 
