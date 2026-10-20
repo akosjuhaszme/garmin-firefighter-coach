@@ -363,6 +363,19 @@ npx @modelcontextprotocol/inspector uv run garmin--workouts-mcp
 You'll be able to inspect and test the tools.
 
 
+### The server does not start on Windows ("EUNKNOWN ... uv_spawn", "an application control policy blocked this file")
+
+The `garmin-workouts-mcp.exe` in `.venv\Scripts` is a small launcher that pip generates at install time. It is not signed, and Windows Smart App Control (a Windows 11 feature, on by default on clean installs) can block unsigned programs it has no reputation for, with the message that an application control policy blocked the file. The Windows event log shows it as Code Integrity event 3077 (Event Viewer, Applications and Services Logs, Microsoft, Windows, CodeIntegrity, Operational). The Python interpreter itself is signed and Smart App Control does not restrict the code it runs, so start the server through it instead of through the launcher:
+
+```json
+"garmin-workouts": {
+  "command": "C:\\path\\to\\garmin-workouts-mcp\\.venv\\Scripts\\python.exe",
+  "args": ["-m", "garmin_workouts_mcp"]
+}
+```
+
+`python -m garmin_workouts_mcp` runs the same entry point as the launcher. Turning Smart App Control off is not recommended: Microsoft documents that it cannot be switched back on without reinstalling Windows.
+
 ### Login Issues
 
 If you encounter login issues:
