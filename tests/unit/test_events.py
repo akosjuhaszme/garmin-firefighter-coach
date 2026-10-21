@@ -447,6 +447,65 @@ async def test_create_without_known_time_zone_asks_for_one(garth_fake):
     assert data["status"] == "created"
 
 
+# ---------------------------------------------------------- 401 retry
+
+
+def _http_error(status):
+    return GarthHTTPError(msg="Error in request", error=HTTPError(response=_response(status, {"message": "x"})))
+
+
+def test_a_read_is_retried_once_on_401_and_other_errors_are_not_swallowed():
+    calls = []
+
+    def flaky(statuses):
+        def call():
+            calls.append(1)
+            status = statuses.pop(0)
+            if status != 200:
+                raise _http_error(status)
+            return "ok"
+        return call
+
+    assert events.retry_once_on_401(flaky([401, 200])) == "ok" and len(calls) == 2
+    calls.clear()
+    with pytest.raises(GarthHTTPError):
+        events.retry_once_on_401(flaky([401, 401]))  # a second 401 is the caller's problem
+    assert len(calls) == 2
+    calls.clear()
+    with pytest.raises(GarthHTTPError):
+        events.retry_once_on_401(flaky([500, 200]))  # only 401 is retried
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_reads_survive_one_401_but_a_write_is_never_repeated(app, garth_fake):
+    real_get, real_request = garth_fake.get, garth_fake.request
+    state = {"left": 1}
+
+    def get_401_once(*a, **k):
+        if state["left"]:
+            state["left"] -= 1
+            garth_fake._fail(401, "token expired")
+        return real_get(*a, **k)
+
+    garth_fake.get = get_401_once
+    data = await call_json(app, "get_calendar_events", {"start_year": datetime.date.today().year, "start_month": datetime.date.today().month, "months": 24})
+    assert data["count"] == 2  # the 401 on the first read did not show
+
+    posts = []
+
+    def post_401(method, subdomain, path, api=False, json=None, **kw):
+        if method == "POST":
+            posts.append(path)
+            garth_fake._fail(401, "token expired")
+        return real_request(method, subdomain, path, api=api, json=json, **kw)
+
+    garth_fake.request = post_401
+    result = await call_json(app, "create_calendar_event", {"name": "Zzz Quux Fun Run", "date": _in_days(120), "create_anyway": True})
+    assert result["status"] == "failed" and result["http_status"] == 401
+    assert len(posts) == 1  # not repeated
+
+
 # -------------------------------------------------------------- catalog
 
 

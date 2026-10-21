@@ -26,6 +26,8 @@ from typing import Optional
 
 from garth.exc import GarthHTTPError
 
+from garmin_workouts_mcp.events import retry_once_on_401
+
 # The garmin_client will be set by the main file
 garmin_client = None
 
@@ -158,8 +160,11 @@ def _split_rows(splits: list, split_type: Optional[str]) -> list:
 
 def _request(method: str, path: str, **kwargs):
     """(status code, parsed body). garth raises on every HTTP error status, so unwrap that."""
+    def send():
+        return garmin_client.garth.request(method, "connectapi", path, api=True, **kwargs)
+
     try:
-        response = garmin_client.garth.request(method, "connectapi", path, api=True, **kwargs)
+        response = retry_once_on_401(send) if method == "GET" else send()
         status, text = response.status_code, response.text
     except GarthHTTPError as e:
         response = getattr(getattr(e, "error", None), "response", None)

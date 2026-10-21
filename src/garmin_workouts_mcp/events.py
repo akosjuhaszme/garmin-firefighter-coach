@@ -34,6 +34,18 @@ def configure(client):
     garmin_client = client
 
 
+def retry_once_on_401(call):
+    """Run a read request; Garmin answers 401 once when the session token has just run out and the next
+    request works. Only reads are retried, a retried write could be done twice."""
+    try:
+        return call()
+    except GarthHTTPError as e:
+        response = getattr(getattr(e, "error", None), "response", None)
+        if getattr(response, "status_code", None) != 401:
+            raise
+        return call()
+
+
 # ---------------------------------------------------------------- helpers
 
 
@@ -87,11 +99,11 @@ def event_row(item: dict) -> dict:
 
 def fetch_events(client, start_date: str, end_date: str) -> list:
     """Raw event objects between two dates (YYYY-MM-DD, inclusive), sorted by date."""
-    response = client.garth.get(
+    response = retry_once_on_401(lambda: client.garth.get(
         "connectapi",
         "calendar-service/events",
         params={"startDate": start_date, "endDate": end_date},
-    )
+    ))
     rows = response.json() or []
     return sorted(rows, key=lambda r: (r.get("date") or "", r.get("id") or 0))
 
@@ -111,8 +123,11 @@ def month_range(start_year: int, start_month: int, months: int):
 def _request(method: str, path: str, **kwargs):
     """(status code, parsed body). garth raises on every HTTP error status, so
     unwrap that into a plain result."""
+    def send():
+        return garmin_client.garth.request(method, "connectapi", path, api=True, **kwargs)
+
     try:
-        response = garmin_client.garth.request(method, "connectapi", path, api=True, **kwargs)
+        response = retry_once_on_401(send) if method == "GET" else send()
         status, text = response.status_code, response.text
     except GarthHTTPError as e:
         response = getattr(getattr(e, "error", None), "response", None)
@@ -289,7 +304,7 @@ def fetch_race_search(client, **params) -> list:
     """Raw results of Garmin's race search (race-search/events), the service behind the
     "search for an event" screens of Garmin Connect and the phone app."""
     params = {k: v for k, v in params.items() if v not in (None, "")}
-    return client.garth.get("connectapi", "race-search/events", params=params).json() or []
+    return retry_once_on_401(lambda: client.garth.get("connectapi", "race-search/events", params=params)).json() or []
 
 
 def fetch_catalog(client, **params) -> list:
@@ -297,7 +312,9 @@ def fetch_catalog(client, **params) -> list:
     (calendar-service/events/discover). Parameters are Garmin's own names: fromDate,
     toDate, searchPhrase, eventType, poiLat, poiLon, withinMeters, limit (max 1000)."""
     params = {k: v for k, v in params.items() if v not in (None, "")}
-    return client.garth.get("connectapi", "calendar-service/events/discover", params=params).json() or []
+    return retry_once_on_401(
+        lambda: client.garth.get("connectapi", "calendar-service/events/discover", params=params)
+    ).json() or []
 
 
 def _catalog_for_day(day: str, name: str) -> list:
