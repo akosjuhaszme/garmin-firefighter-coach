@@ -93,11 +93,12 @@ Jelentsd: az átlagos bevitel a céljaimhoz képest, a nagyon eltérő napok és
 ```text
 Készíts fel erre a versenyre: [VERSENY NEVE vagy "a naptáram következő versenye"]. A célom: [CÉL vagy "kérdezz rá, és vesd össze a get_race_predictions-szel"].
 
-1. Keresd meg a versenyt, a dátumát, távját és terepét. Ha közel a dátum, nézd meg az időjárás-előrejelzést.
+1. Keresd meg a versenyt a naptáramban (get_calendar_events): dátum, táv, terep. Ha nincs ott, keress a Garmin szervezői versenykatalógusában (search_event_catalog, ugyanaz a keresés, mint az app versenykeresője: szavak, dátumok, távolsághatár és hely szerint, a hivatalos és az ellenőrzött források előbb), és mutasd meg, mit találtál. Versenyt csak a jóváhagyásom után vegyél fel a naptáramba: katalógus-versenyt az add_catalog_event_to_calendar-ral (az természeténél fogva nyilvános), privát eseményt a create_calendar_event-tel (ez előbb hasonló nevű eseményt keres ugyanarra a napra, és megáll, ha talál; a create_anyway-t csak az engedélyemmel használd). Ha közel a dátum, nézd meg az időjárás-előrejelzést.
 2. Mérd a célt az előrejelzéseimhez, a friss hosszú futásaimhoz és a személyes rekordjaimhoz. Mondd ki egyenesen, hogy reális, ambiciózus vagy elérhetetlen, számokkal.
 3. Javasold a hátralévő heteket táblázatban: építés, tapering és versenyhét, terheléssel és intenzitással. Legyen benne a verseny előtti nap és a verseny reggelének rutinja, a tempó pulzuszóna és perc/km szerint, és a folyadék- és energiapótlás az izzadásveszteségem adatai alapján (get_hydration).
 4. Sorold fel a logisztikát, amit most kell elintézni (felszerelés, útvonal, utazás, alvás).
-Jóváhagyásom nélkül semmit ne ütemezz.
+5. Sík távra ajánlj PacePro-tervet: előbb mutasd meg a create_pacepro_plan-nel (egyenletes tempó vagy enyhe negatív szakaszolás), és csak akkor mentsd el, illetve küldd az órámra a send_pacepro_plan_to_watch-csal, ha kérem. Figyelmeztess, hogy PacePro-futásnál a strukturált edzés pulzusriasztásai elmaradnak, és hogy a tempó csak támpont a pulzuszónáim mellett.
+Jóváhagyásom nélkül semmit ne ütemezz, vegyél fel, hozz létre vagy küldj el.
 ```
 
 ## Terhelésnövelési szabályok

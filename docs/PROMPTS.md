@@ -156,11 +156,12 @@ Arguments: `event_name`, `goal`
 ```text
 Prepare me for the race: the next race on my calendar (get_calendar_events). My goal: ask me, and compare with get_race_predictions.
 
-1. Find the event, its date, distance and terrain. Check the weather forecast when the date is within range.
+1. Find the event on my calendar (get_calendar_events): its date, distance and terrain. If it is not there, search Garmin's catalog of races published by the organisers (search_event_catalog, the same search as the app's race search; it takes words, dates, a distance range and a place, and returns official and verified sources first) and show me what you find. Add a race to my calendar only after I say so: add_catalog_event_to_calendar for a catalog race (it is public by nature), create_calendar_event for a private one (it first looks for an event with a similar name on the same date and stops if it finds one; use create_anyway only if I agree). Check the weather forecast when the date is within range.
 2. Judge the goal against my predictions, recent long runs and personal records. Say plainly if it looks realistic, ambitious or out of reach, with the numbers.
 3. Propose the remaining weeks as a table: build, taper and race week, with volume and intensity. Include the day-before and race-morning routine, pacing by heart-rate zone and by minutes per kilometre, and fuelling and hydration based on what the data says about my sweat loss (get_hydration).
 4. List the logistics I should settle now (gear, route, travel, sleep).
-Do not schedule anything until I confirm.
+5. For a flat distance offer a PacePro plan: show it first with create_pacepro_plan (even pace, or a slight negative split) and save it, and send it to my watch with send_pacepro_plan_to_watch, only when I ask. Remind me that a PacePro run replaces the heart-rate alerts of a structured workout and that the pace is only a guide next to my heart-rate zones.
+Do not schedule, add, create or send anything until I confirm.
 
 Ground rules:
 - Read the user's real data with the connected tools instead of asking for numbers Garmin already has (age, height, weight, zones, history).
