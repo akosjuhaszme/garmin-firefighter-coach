@@ -23,6 +23,8 @@ from garmin_workouts_mcp import workout_templates
 from garmin_workouts_mcp import recovery
 from garmin_workouts_mcp import events
 from garmin_workouts_mcp import pacepro
+from garmin_workouts_mcp import watch_alarms
+from garmin_workouts_mcp import daylight
 from garmin_workouts_mcp import weather
 from garmin_workouts_mcp import routes
 from garmin_workouts_mcp import tracking
@@ -316,6 +318,7 @@ def main():
     recovery.configure(garmin_client)
     events.configure(garmin_client)
     pacepro.configure(garmin_client)
+    watch_alarms.configure(garmin_client)
     routes.configure(garmin_client)
     tracking.configure(garmin_client)
     strength.configure(garmin_client)
@@ -339,6 +342,8 @@ def main():
     app = recovery.register_tools(app)
     app = events.register_tools(app)
     app = pacepro.register_tools(app)
+    app = watch_alarms.register_tools(app)
+    app = daylight.register_tools(app)
     app = weather.register_tools(app)
     app = routes.register_tools(app)
     app = tracking.register_tools(app)
