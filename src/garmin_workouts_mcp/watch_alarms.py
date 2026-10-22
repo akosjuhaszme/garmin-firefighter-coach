@@ -15,13 +15,21 @@ TONE_AND_VIBRATION (anything else is refused as a whole, nothing changes); alarm
 backlight (ON/OFF) are kept; alarmMode accepts ON, OFF, ONCE, DAILY and WEEKDAYS; the day names
 tried for a recurring alarm were all dropped, so only one-time alarms (alarmDays ["ONCE"]) are
 created. alarmTime is treated as minutes after midnight (370 is 06:10); that unit follows from the one
-alarm that was in the settings and still has to be confirmed on the watch itself. The settings
-the API shows may not list an alarm that was set on the watch itself, so alarms from here and
-alarms on the watch can differ.
+alarm that was in the settings and still has to be confirmed on the watch itself.
+
+WRITES ARE SWITCHED OFF unless the server environment has GARMIN_WATCH_ALARM_WRITES=1. Reason
+(found 2026-10-22): the settings the API holds list ONE alarm, while the watch itself had three,
+two of them recurring. No field of the settings object carries the recurring alarms (checked all
+135 keys, with and without the mergeDefault parameters), so they exist only on the watch. A
+settings write may make the watch replace its own alarms with Connect's list at the next sync;
+that is not ruled out, and the backup and read-back checks here only protect what the API lists.
+The experiments of that day wrote the list [06:10 off] (the list that was already there) a few
+times between 15:13 and 15:18; the watch's last download from Connect before that was 14:31.
 """
 import copy
 import datetime
 import json
+import os
 import pathlib
 import re
 from typing import Optional
@@ -33,6 +41,12 @@ from garmin_workouts_mcp.events import retry_once_on_401
 # The garmin_client will be set by the main file
 garmin_client = None
 
+_WRITES_OFF = (
+    "Alarm changes are switched off. Alarms that exist only on the watch (the recurring ones) do not appear in "
+    "Garmin's settings, and a settings write may replace the watch's own alarms at its next sync; that is not ruled "
+    "out. Nothing was changed. Switch writes on only after the user knows this and agreed: set the environment "
+    "variable GARMIN_WATCH_ALARM_WRITES=1 for the server."
+)
 _TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 _SOUNDS = ("VIBRATION", "TONE", "TONE_AND_VIBRATION")
 _BACKUP_DIR = pathlib.Path.home() / ".garmin-coach" / "backups"
@@ -103,6 +117,10 @@ def _pick_device(device_id: Optional[int]):
 
 def _settings_path(device_id) -> str:
     return f"device-service/deviceservice/device-info/settings/{int(device_id)}"
+
+
+def _writes_allowed() -> bool:
+    return os.environ.get("GARMIN_WATCH_ALARM_WRITES", "").strip().lower() in ("1", "true", "yes")
 
 
 def _alarm_row(alarm: dict) -> dict:
@@ -208,6 +226,8 @@ def register_tools(app):
     ) -> str:
         """Add ONE new one-time alarm to the Garmin settings of the user's watch
 
+        SWITCHED OFF by default (see the module note: a settings write may replace alarms that exist only on the
+        watch); it works only when the server runs with GARMIN_WATCH_ALARM_WRITES=1, which the user must agree to.
         Only call this when the user asked for the alarm. The alarm is a one-time alarm: it rings the
         next time the clock shows that time (within 24 hours), so set it the evening before the
         morning it is meant for. It reaches the watch at the next sync (open Garmin Connect on the phone
@@ -224,6 +244,8 @@ def register_tools(app):
             device_id: Optional device id; by default the primary device
         """
         try:
+            if not _writes_allowed():
+                return _dump({"status": "switched_off", "message": _WRITES_OFF})
             match = _TIME_RE.match(str(time).strip())
             if not match:
                 return "Error: time must be HH:MM on the 24 hour clock"
@@ -292,6 +314,7 @@ def register_tools(app):
     async def delete_watch_alarm(alarm_id: int, confirm: bool = False, device_id: Optional[int] = None) -> str:
         """Delete ONE alarm from the Garmin settings of the user's watch
 
+        SWITCHED OFF by default like set_watch_alarm (GARMIN_WATCH_ALARM_WRITES=1 needed).
         Two steps. Without confirm=true nothing is deleted: the result shows which alarm would go. Show
         that to the user and call again with confirm=true only after the user agreed to deleting THIS
         alarm (an alarm this tool created for a test may be deleted without asking again). The settings
@@ -304,6 +327,8 @@ def register_tools(app):
             device_id: Optional device id; by default the primary device
         """
         try:
+            if not _writes_allowed():
+                return _dump({"status": "switched_off", "message": _WRITES_OFF})
             device, error = _pick_device(device_id)
             if error:
                 return _dump(error)

@@ -78,7 +78,8 @@ def fake(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-def app(fake):
+def app(fake, monkeypatch):
+    monkeypatch.setenv("GARMIN_WATCH_ALARM_WRITES", "1")  # the tools are switched off by default
     watch_alarms.configure(SimpleNamespace(garth=fake))
     application = FastMCP("Test alarms")
     watch_alarms.register_tools(application)
@@ -91,6 +92,19 @@ async def call_json(app, name, args):
 
 async def call_text(app, name, args):
     return (await app.call_tool(name, args))[0][0].text
+
+
+@pytest.mark.asyncio
+async def test_writes_are_switched_off_unless_the_environment_allows_them(app, fake, monkeypatch):
+    monkeypatch.delenv("GARMIN_WATCH_ALARM_WRITES")
+    before = copy.deepcopy(fake.settings)
+    for name, args in (("set_watch_alarm", {"time": "05:45"}), ("delete_watch_alarm", {"alarm_id": 1000, "confirm": True})):
+        data = await call_json(app, name, args)
+        assert data["status"] == "switched_off" and "GARMIN_WATCH_ALARM_WRITES" in data["message"]
+    assert fake.calls == [] and fake.settings == before  # not even a read
+    monkeypatch.setenv("GARMIN_WATCH_ALARM_WRITES", "0")
+    assert (await call_json(app, "set_watch_alarm", {"time": "05:45"}))["status"] == "switched_off"
+    assert (await call_json(app, "get_watch_alarms", {}))["alarms"]  # reading stays available
 
 
 @pytest.mark.asyncio
