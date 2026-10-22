@@ -18,6 +18,10 @@ has GARMIN_WATCH_USB_WRITES=1, asks for confirm=true, keeps a copy of the watch'
 ~/.garmin-coach/backups, changes only one empty slot, and stages the file; the watch applies it when the cable
 is unplugged. Verify afterwards with get_watch_usb_state.
 
+Switching the alarm ON does not work this way (checked 2026-10-22): an alarm staged as enabled got its new time on
+the watch, but the watch's own alarm list showed it as OFF and it did not ring at its time, while the exported
+Settings.fit claimed it was on. So the time and days arrive, and the user has to switch the alarm on at the watch.
+
 Removing an alarm does NOT work this way (checked 2026-10-22): a file whose slot holds only invalid (empty) values
 was taken from NewFiles and then ignored, the alarm stayed. An alarm added by this tool has to be deleted on the
 watch itself.
@@ -177,7 +181,8 @@ def _stage(data: bytes, pattern: str, name_hint: str) -> dict:
 
 
 _NEXT = ("The file is waiting in the watch's NewFiles folder. The watch takes it over when the cable is unplugged "
-         "(wait a minute, plug it in again), then call get_watch_usb_state to check the result.")
+         "(wait a minute, plug it in again), then call get_watch_usb_state to check the result. The watch does not switch an "
+         "alarm on from the file (checked live): ask the user to switch the new alarm on at the watch itself.")
 
 
 def register_tools(app):
@@ -229,7 +234,8 @@ def register_tools(app):
             time: HH:MM on the watch's clock.
             days: once, daily, weekdays, weekend, or days such as mon,wed,fri or mon-sat. Only "once" and
                 Monday-to-Saturday have been checked against the watch.
-            enabled: false stores the alarm switched off.
+            enabled: false stores the alarm switched off. true is written too, but the watch showed such an alarm as OFF
+                (checked live): the user has to switch it on at the watch.
             confirm: must be true to stage the file.
             device_name: Part of the device's name in Explorer.
         """
