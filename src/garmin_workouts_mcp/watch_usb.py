@@ -13,10 +13,14 @@ What was found out live (fenix 7, firmware 27.18, 2026-10-22):
    afterwards and the next export of Settings.fit held the new alarm, the other alarms unchanged.
  - GARMIN/Schedule/Schedule.fit lists the scheduled workouts (date, done or not, workout number).
 
-Everything here is read-only except set_watch_alarm_usb / delete_watch_alarm_usb, which are switched off unless
-the server environment has GARMIN_WATCH_USB_WRITES=1, ask for confirm=true, keep a copy of the watch's
-Settings.fit in ~/.garmin-coach/backups, change only the one slot, and stage the file; the watch applies it
-when the cable is unplugged. Verify afterwards with get_watch_usb_state.
+Everything here is read-only except set_watch_alarm_usb, which is switched off unless the server environment
+has GARMIN_WATCH_USB_WRITES=1, asks for confirm=true, keeps a copy of the watch's Settings.fit in
+~/.garmin-coach/backups, changes only one empty slot, and stages the file; the watch applies it when the cable
+is unplugged. Verify afterwards with get_watch_usb_state.
+
+Removing an alarm does NOT work this way (checked 2026-10-22): a file whose slot holds only invalid (empty) values
+was taken from NewFiles and then ignored, the alarm stayed. An alarm added by this tool has to be deleted on the
+watch itself.
 """
 import base64
 import datetime
@@ -271,43 +275,6 @@ def register_tools(app):
         if result.get("error"):
             return _dump({"status": "usb_error", "message": result["error"], "backup": backup})
         return _dump({"status": "staged", "alarm": plan, "backup": backup, "files_waiting_in_new_files": result.get("new_files"),
-                      "next": _NEXT})
-
-    @app.tool()
-    async def delete_watch_alarm_usb(slot: int, confirm: bool = False, device_name: Optional[str] = None) -> str:
-        """
-        Remove ONE alarm from the watch over USB (needs the cable; switched off unless GARMIN_WATCH_USB_WRITES=1).
-
-        The slot number is the one get_watch_usb_state shows. Without confirm=true only the alarm is shown. The watch
-        applies the change when the cable is unplugged.
-        """
-        if not _writes_allowed():
-            return _dump({"status": "switched_off", "message": _WRITES_OFF})
-        problem, state, settings, _ = _read(device_name)
-        if problem:
-            return _dump(problem)
-        if not settings or not fit_light.check_crc(settings):
-            return _dump({"status": "unreadable_settings", "message": "Settings.fit could not be read or fails its CRC check. Nothing was changed."})
-        if state.get("new_files"):
-            return _dump({"status": "import_pending", "files_waiting": state["new_files"],
-                          "message": "A file is still waiting in NewFiles. Unplug the cable so the watch takes it over, then try again."})
-        slots = fit_light.alarm_slots(settings)
-        target = next((a for a in slots if a["slot"] == slot), None)
-        if target is None or not target["time"]:
-            return _dump({"status": "not_found", "message": f"Slot {slot} holds no alarm.", "alarms": [a for a in slots if a["time"]]})
-        if not confirm:
-            return _dump({"status": "confirmation_required", "alarm": target, "message": "Call again with confirm=true to remove it."})
-        try:
-            patched = fit_light.clear_alarm(settings, slot)
-        except fit_light.FitError as e:
-            return _dump({"status": "refused", "message": str(e)})
-        if [a for a in fit_light.alarm_slots(patched) if a["slot"] != slot] != [a for a in slots if a["slot"] != slot]:
-            return _dump({"status": "refused", "message": "The other alarm slots would change. Nothing was staged."})
-        backup = _backup(settings)
-        result = _stage(patched, _pattern(device_name), "ALARM")
-        if result.get("error"):
-            return _dump({"status": "usb_error", "message": result["error"], "backup": backup})
-        return _dump({"status": "staged", "removed": target, "backup": backup, "files_waiting_in_new_files": result.get("new_files"),
                       "next": _NEXT})
 
     return app

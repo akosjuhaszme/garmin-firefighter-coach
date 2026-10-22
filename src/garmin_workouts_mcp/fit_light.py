@@ -2,8 +2,8 @@
 A small FIT reader and patcher (standard library only) for the few files a Garmin watch shows over USB.
 
 Only what the watch tools need: reading data messages, the alarm slots of a Settings file (global
-message 222, ten slots), the scheduled workouts of a Schedule file (global message 28), and changing ONE
-alarm slot in place. A patched file keeps its size, every other byte stays as it was, and both CRCs are
+message 222, ten slots), the scheduled workouts of a Schedule file (global message 28), and adding ONE
+alarm to an empty slot in place. A patched file keeps its size, every other byte stays as it was, and both CRCs are
 checked before and after.
 
 Alarm slot fields (fenix 7, read from a real Settings.fit; the day bits beyond Monday to Saturday are
@@ -184,8 +184,8 @@ def set_alarm(data: bytes, slot: int, minutes: int, mask: int, enabled: bool, no
     return _patch(data, slot, {0: minutes, 1: mask, 2: 0, 3: 2, 4: 1, 5: stamp, 7: 0, 8: 1 if enabled else 0, 11: stamp}, True)
 
 
-def clear_alarm(data: bytes, slot: int) -> bytes:
-    return _patch(data, slot, {0: 0xFFFF, 1: 0, 2: 0, 3: 255, 4: 255, 5: 0xFFFFFFFF, 7: 255, 8: 255, 11: 0xFFFFFFFF}, False)
+# There is no clear_alarm on purpose: the watch ignores a slot that holds only invalid (empty) values, so an alarm
+# cannot be removed by importing a file (checked live, 2026-10-22).
 
 
 # ---------------------------------------------------------------- schedule

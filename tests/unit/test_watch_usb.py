@@ -90,16 +90,13 @@ def test_set_alarm_changes_only_its_slot_and_keeps_the_crc(settings):
     assert all(record.start <= i < record.end or i >= len(new) - 2 for i in changed)
 
 
-def test_set_alarm_refuses_a_used_slot_and_clear_empties_it(settings):
+def test_set_alarm_refuses_a_used_slot_a_missing_slot_and_a_bad_crc(settings):
     with pytest.raises(fit_light.FitError, match="not empty"):
         fit_light.set_alarm(settings, 0, 360, 128, True)
     with pytest.raises(fit_light.FitError, match="does not exist"):
         fit_light.set_alarm(settings, 10, 360, 128, True)
-    cleared = fit_light.clear_alarm(settings, 1)
-    slots = fit_light.alarm_slots(cleared)
-    assert slots[1]["time"] is None and slots[0]["time"] == "05:00" and slots[2]["time"] == "09:00"
     with pytest.raises(fit_light.FitError, match="CRC"):
-        fit_light.clear_alarm(settings[:-3] + b"\x00\x00\x00", 1)
+        fit_light.set_alarm(settings[:-3] + b"\x00\x00\x00", 3, 360, 128, True)
 
 
 def test_schedule_rows():
@@ -179,7 +176,6 @@ async def test_state_without_a_watch(app, fake):
 async def test_writes_are_off_by_default(app, monkeypatch, fake):
     monkeypatch.delenv("GARMIN_WATCH_USB_WRITES")
     assert (await call(app, "set_watch_alarm_usb", {"time": "05:45", "confirm": True}))["status"] == "switched_off"
-    assert (await call(app, "delete_watch_alarm_usb", {"slot": 1, "confirm": True}))["status"] == "switched_off"
     assert fake.put_files == []
 
 
@@ -213,13 +209,3 @@ async def test_set_refuses_bad_input_duplicates_pending_files_and_full_slots(app
 async def test_set_refuses_a_file_that_fails_its_crc(app, fake):
     fake.settings = fake.settings[:-3] + b"\x00\x00\x00"
     assert (await call(app, "set_watch_alarm_usb", {"time": "05:45", "confirm": True}))["status"] == "unreadable_settings"
-
-
-@pytest.mark.asyncio
-async def test_delete_shows_the_alarm_then_clears_only_that_slot(app, fake):
-    preview = await call(app, "delete_watch_alarm_usb", {"slot": 1})
-    assert preview["status"] == "confirmation_required" and preview["alarm"]["time"] == "06:10"
-    assert (await call(app, "delete_watch_alarm_usb", {"slot": 7, "confirm": True}))["status"] == "not_found"
-    done = await call(app, "delete_watch_alarm_usb", {"slot": 1, "confirm": True})
-    assert done["status"] == "staged"
-    assert [s["time"] for s in fit_light.alarm_slots(fake.put_files[0]) if s["time"]] == ["05:00", "09:00"]
