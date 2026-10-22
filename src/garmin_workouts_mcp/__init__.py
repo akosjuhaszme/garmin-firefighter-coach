@@ -25,6 +25,7 @@ from garmin_workouts_mcp import events
 from garmin_workouts_mcp import pacepro
 from garmin_workouts_mcp import watch_alarms
 from garmin_workouts_mcp import daylight
+from garmin_workouts_mcp import watch_usb
 from garmin_workouts_mcp import weather
 from garmin_workouts_mcp import routes
 from garmin_workouts_mcp import tracking
@@ -344,6 +345,7 @@ def main():
     app = pacepro.register_tools(app)
     app = watch_alarms.register_tools(app)
     app = daylight.register_tools(app)
+    app = watch_usb.register_tools(app)
     app = weather.register_tools(app)
     app = routes.register_tools(app)
     app = tracking.register_tools(app)

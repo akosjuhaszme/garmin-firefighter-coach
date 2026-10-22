@@ -204,6 +204,12 @@ This MCP server implements tools for the following domains:
   - 🗑️ `delete_watch_alarm` — remove ONE alarm, only with `confirm=true`; switched off like `set_watch_alarm`
   - 🌅 `get_daylight` — sunrise, sunset, civil twilight and a wake-up time for a place and days (calculated, no network)
 
+- ✅ **Watch over USB (Windows)** — 1 read and 2 write tools 🔌
+  - 🔎 `get_watch_usb_state` — read-only: the alarm slots as the watch really holds them (including recurring ones that Garmin Connect's settings never list), the scheduled workouts, workout and PacePro files, newest activity files, free space, and whether a file still waits in `NewFiles`
+  - ➕ `set_watch_alarm_usb` — add ONE alarm to the first empty slot (one-time alarms and Monday-to-Saturday were checked on a fenix 7); the watch's own `Settings.fit` is saved first, only that slot's bytes and the CRC change, `confirm=true` is needed, and nothing is written unless the server environment has `GARMIN_WATCH_USB_WRITES=1`
+  - 🗑️ `delete_watch_alarm_usb` — empty ONE alarm slot, same guards
+  - How it works: the watch is an MTP device (no drive letter); it is read through the Windows shell (PowerShell). A changed settings file is put into `GARMIN/NewFiles`, which the watch's `GarminDevice.xml` lists as its input folder for settings FIT files, and the watch takes it over when the cable is pulled. Checked live on a fenix 7 (firmware 27.18): a test alarm went in that way, the other alarms stayed unchanged. Not yet checked: that the alarm list on the watch's own screen shows such an alarm, and that a staged alarm rings
+
 - ✅ **Workout Templates** — 5 MCP resources 📂
   - 🏃 `workout://templates/simple-run` — basic warmup / run / cooldown structure
   - ⚡ `workout://templates/interval-running` — interval training with repeat groups (6×400 m)
