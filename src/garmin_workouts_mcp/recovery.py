@@ -29,8 +29,10 @@ def naps_of(dto: dict) -> list:
 
     Garmin gives the times in GMT plus an offset in minutes (120 on a CEST day). napSource was 1 for 35 of 41 naps
     in 90 days (round 30 minute ones and odd lengths alike) and 0 for 6 naps since 2026-10-04; what the codes mean is
-    NOT known (a nap the user starts with the watch's timer, an automatically detected one, or one added in the app
-    could each be either), so the raw code is passed on as source_code and should not be interpreted."""
+    only partly known: the user confirmed that one 0 nap (an evening nap he did not start) was found by
+    the watch on its own, so 0 is probably "detected automatically" (working hypothesis, not proven for the other five).
+    What 1 means is open (the user's own timer naps are 1 at least once, odd-length naps are 1 as well), so the raw code
+    is passed on as source_code and 1 should not be interpreted."""
     import datetime
 
     out = []
