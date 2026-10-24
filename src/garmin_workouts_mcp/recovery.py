@@ -24,6 +24,26 @@ def configure(client):
     garmin_client = client
 
 
+def naps_of(dto: dict) -> list:
+    """The naps of a day from dailySleepDTO.dailyNapDTOS: local start and end clock times and the length in minutes.
+
+    Garmin gives the times in GMT plus an offset in minutes (120 on a CEST day). napSource was 1 for a nap the watch
+    found on its own as far as is known; what a nap the user adds by hand carries has not been seen, so the raw code
+    is passed on as source_code."""
+    import datetime
+
+    out = []
+    for nap in (dto or {}).get("dailyNapDTOS") or []:
+        try:
+            start = datetime.datetime.fromisoformat(nap["napStartTimestampGMT"]) + datetime.timedelta(minutes=nap.get("napStartTimeOffset") or 0)
+            end = datetime.datetime.fromisoformat(nap["napEndTimestampGMT"]) + datetime.timedelta(minutes=nap.get("napEndTimeOffset") or 0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        out.append({"start": f"{start:%H:%M}", "end": f"{end:%H:%M}", "minutes": round((nap.get("napTimeSec") or 0) / 60),
+                    "feedback": nap.get("napFeedback"), "source_code": nap.get("napSource")})
+    return out
+
+
 def _dump(payload, cdate: str, label: str) -> str:
     if payload is None or payload == []:
         return f"No {label} data found for {cdate}."
@@ -121,6 +141,8 @@ def register_tools(app):
                 "sleep_score_insight": dto.get("sleepScoreInsight"),
                 "sleep_scores": dto.get("sleepScores"),
                 "sleep_need": dto.get("sleepNeed"),
+                "nap_minutes": round(dto["napTimeSeconds"] / 60) if dto.get("napTimeSeconds") else None,
+                "naps": naps_of(dto) or None,
                 "avg_overnight_hrv": data.get("avgOvernightHrv"),
                 "hrv_status": data.get("hrvStatus"),
                 "resting_heart_rate": data.get("restingHeartRate"),
