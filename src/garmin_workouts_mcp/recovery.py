@@ -27,9 +27,10 @@ def configure(client):
 def naps_of(dto: dict) -> list:
     """The naps of a day from dailySleepDTO.dailyNapDTOS: local start and end clock times and the length in minutes.
 
-    Garmin gives the times in GMT plus an offset in minutes (120 on a CEST day). napSource was 1 for a nap the user
-    started on the watch with its nap function (a timer); that is the only value seen so far. What an automatically
-    detected nap or one added later in the app carries has not been seen, so the raw code is passed on as source_code."""
+    Garmin gives the times in GMT plus an offset in minutes (120 on a CEST day). napSource was 1 for 35 of 41 naps
+    in 90 days (round 30 minute ones and odd lengths alike) and 0 for 6 naps since 2026-10-04; what the codes mean is
+    NOT known (a nap the user starts with the watch's timer, an automatically detected one, or one added in the app
+    could each be either), so the raw code is passed on as source_code and should not be interpreted."""
     import datetime
 
     out = []
