@@ -19,6 +19,7 @@ class FakeGarmin:
         self.sent = []
         self.store_it = True
         self.alter = {}
+        self.empty_delete_answer = False
         self._version = 5000
 
     def seed(self, day, hhmm, sys_, dia, pulse=60, notes=""):
@@ -49,6 +50,8 @@ class FakeGarmin:
 
     def delete_blood_pressure(self, version, cdate):
         self.readings = [r for r in self.readings if str(r["version"]) != str(version)]
+        if self.empty_delete_answer:
+            raise json.JSONDecodeError("Expecting value", "", 0)  # what the library raises for Garmin's empty answer
         return {}
 
 
@@ -141,3 +144,11 @@ async def test_delete_removes_only_the_named_reading(app, fake):
     done = await call(app, "delete_blood_pressure_entry", {"version": "5001", "date": days_ago(1)})
     assert done["status"] == "success" and [r["version"] for r in fake.readings] == [5002]
     assert "YYYY-MM-DD" in await call(app, "delete_blood_pressure_entry", {"version": "5002", "date": "x"})
+
+
+@pytest.mark.asyncio
+async def test_delete_is_a_success_when_garmin_answers_with_an_empty_body(app, fake):
+    fake.seed(days_ago(1), "06:30", 128, 82, 64)
+    fake.empty_delete_answer = True  # seen live: the delete works, the library cannot parse the empty answer
+    done = await call(app, "delete_blood_pressure_entry", {"version": "5001", "date": days_ago(1)})
+    assert done["status"] == "success" and fake.readings == []

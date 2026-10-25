@@ -201,7 +201,12 @@ def register_tools(app):
             before = {str(r["version"]) for r in _readings(garmin_client.get_blood_pressure(day, day))}
             if str(version) not in before:
                 return json.dumps({"status": "not_found", "message": f"No reading with version {version} on {day}; nothing was deleted."}, indent=2)
-            garmin_client.delete_blood_pressure(str(version), day)
+            try:
+                garmin_client.delete_blood_pressure(str(version), day)
+            except ValueError:
+                # Garmin answers a successful delete with an empty body and the library then fails to parse it as JSON
+                # (seen live, 2026-10-25); the re-read below decides whether the reading is gone.
+                pass
             after = {str(r["version"]) for r in _readings(garmin_client.get_blood_pressure(day, day))}
             return json.dumps({"status": "success" if str(version) not in after else "still_there", "version": str(version), "date": day}, indent=2)
         except Exception as e:
