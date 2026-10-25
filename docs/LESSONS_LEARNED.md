@@ -27,3 +27,14 @@ Each item says where it belongs: **(Garmin)** this server, **(MFP)** the read-on
 
 ### The Garmin and MyFitnessPal link (both)
 - When the Garmin account is linked to MyFitnessPal, a weigh-in reaches MyFitnessPal **within seconds**, and for a test weight that differed from the day's weight an extra entry with the source MFP came back into Garmin, dated at the moment of the test and the newest of the day, even though the test entry had already been deleted. That echo had to be deleted separately, and the copy in MyFitnessPal stays until it is removed there. **While the link is on, never test a weigh-in with a value that differs from the real one.**
+- **Deleting the copy in MyFitnessPal changes nothing in Garmin:** after the echo entry in Garmin and the copy in MyFitnessPal had both been removed, nothing came back and the real entry stayed.
+
+### Activity statistics (Garmin)
+- The Statistics tab of the Garmin Connect app is built from the activity `summaryDTO`, the `splitSummaries` and, for strength, the exercise sets. Raw names: `averageMovingSpeed`, `avgGradeAdjustedSpeed`, `verticalRatio` (percent), `beginPotentialStamina`, `endPotentialStamina`, `minAvailableStamina`, `avgRespirationRate`, `minRespirationRate`, `maxRespirationRate`, `elevationGain`, `elevationLoss`, `minElevation`, `maxElevation`, `waterEstimated` (ml), `bmrCalories`, `moderateIntensityMinutes`, `vigorousIntensityMinutes`, `aerobicTrainingEffectMessage`.
+- **Ground contact balance:** `groundContactBalanceLeft` is the LEFT share of the ground contact time in percent (52.0 means 52 % left and 48 % right). It sits in the summary, the `splitSummaries`, the splits endpoint (`lapDTOs`) and the typed splits.
+- Derived figures that match the app: active calories = calories minus `bmrCalories`; total intensity minutes = moderate + 2 x vigorous; paused time = elapsed minus moving duration; running, walking and standing time = the `RWD_RUN`, `RWD_WALK` and `RWD_STAND` entries of `splitSummaries`.
+- **Strength totals must be computed from the exercise sets:** the summary's own `totalExerciseReps` and `totalSets` differ from the app (the app counts the ACTIVE sets only: sets, reps, and volume = sum of reps x weight, with the weight in grams). The rest time of the app is the sum of the REST sets; the `INTERVAL_RECOVERY` entry of `splitSummaries` is the longer time between the sets.
+- Garmin's `get_activity_splits` answer has the running dynamics per lap, so short laps (a few hundred metres at a walk break) show noisy balance values.
+
+### Publishing (Garmin)
+- To clean personal details out of commits that are already public, rewrite the history locally (`git filter-branch`, with a backup branch), check with `git log -S`, and push with `--force-with-lease`; an automated session may be blocked from the force push, then the owner runs the command himself. Old commit addresses can stay reachable on GitHub for a while.
