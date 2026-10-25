@@ -29,6 +29,7 @@ from garmin_workouts_mcp import watch_usb
 from garmin_workouts_mcp import weather
 from garmin_workouts_mcp import routes
 from garmin_workouts_mcp import tracking
+from garmin_workouts_mcp import body_composition
 from garmin_workouts_mcp import strength
 from garmin_workouts_mcp import prompts
 
@@ -322,6 +323,7 @@ def main():
     watch_alarms.configure(garmin_client)
     routes.configure(garmin_client)
     tracking.configure(garmin_client)
+    body_composition.configure(garmin_client)
     strength.configure(garmin_client)
 
     # Create the MCP app
@@ -349,6 +351,7 @@ def main():
     app = weather.register_tools(app)
     app = routes.register_tools(app)
     app = tracking.register_tools(app)
+    app = body_composition.register_tools(app)
     app = strength.register_tools(app)
 
     # Register the ready-made coaching prompts (first-run setup, weekly review, ...)
