@@ -162,8 +162,8 @@ This MCP server implements tools for the following domains:
   - 📋 `get_activities` — list activities with pagination support (newest first)
   - 📅 `get_activities_by_date` — list activities between two dates, optionally filtered by type
   - 📅 `get_activities_fordate` — list activities recorded on a specific date
-  - 🔍 `get_activity` — get detailed information for a single activity
-  - 📊 `get_activity_splits` — get lap/split data for an activity
+  - 🔍 `get_activity` — get detailed information for a single activity: the figures of the Garmin Connect app's Statistics tab that the summary carries (moving and grade-adjusted speed, vertical ratio, ground contact balance left/right, stamina, respiration, elevation, estimated sweat loss, active calories, paused time, intensity minutes total, run/walk/stand time and the split summaries) and, for strength sessions, `strength_totals` (sets, reps, volume in kg, average seconds per set, rest between sets) computed from the active sets as the app does. Checked live against the app's numbers for a run and a strength session
+  - 📊 `get_activity_splits` — get lap/split data for an activity, with running dynamics per lap (ground contact time and balance, vertical oscillation and ratio, stride length, maximum cadence), respiration, grade-adjusted and moving speed, and elevation range
   - 📊 `get_activity_typed_splits` — get typed splits (run/walk/etc.) for an activity
   - 📊 `get_activity_split_summaries` — get split summary statistics for an activity
   - 🌤️ `get_activity_weather` — get weather conditions recorded during an activity

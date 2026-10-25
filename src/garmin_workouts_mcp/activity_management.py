@@ -17,6 +17,68 @@ def ground_contact_balance(left):
     return {"left_percent": round(left, 1), "right_percent": round(100 - left, 1), "raw_field": "groundContactBalanceLeft"}
 
 
+def _round(value, digits=1):
+    return None if value is None else round(value, digits)
+
+
+def _compact(values: dict):
+    values = {k: v for k, v in values.items() if v is not None}
+    return values or None
+
+
+def extra_summary_fields(summary: dict, split_summaries) -> dict:
+    """Statistics that the Garmin Connect app shows on the Statistics tab and that the activity summary carries: moving and
+    grade-adjusted speed, vertical ratio, stamina, respiration, elevation, estimated sweat loss, active calories, paused time,
+    total intensity minutes (moderate + 2 x vigorous, as the app counts them), Garmin's training effect messages, the split
+    summaries (warm-up, active, recovery, run/walk/stand detection). Missing values are left out."""
+    calories, bmr = summary.get("calories"), summary.get("bmrCalories")
+    moderate, vigorous = summary.get("moderateIntensityMinutes"), summary.get("vigorousIntensityMinutes")
+    elapsed, moving = summary.get("elapsedDuration"), summary.get("movingDuration")
+    summaries = [{"type": x.get("splitType"), "count": x.get("noOfSplits"), "seconds": round(x.get("duration") or 0),
+                  "distance_m": _round(x.get("distance"))} for x in (split_summaries or [])]
+    seconds = {x["type"]: x["seconds"] for x in summaries}
+    return {
+        "avg_moving_speed_mps": _round(summary.get("averageMovingSpeed"), 3) or None,
+        "avg_grade_adjusted_speed_mps": _round(summary.get("avgGradeAdjustedSpeed"), 3) or None,
+        "vertical_ratio_percent": _round(summary.get("verticalRatio")),
+        "stamina": _compact({"start_percent": summary.get("beginPotentialStamina"), "end_percent": summary.get("endPotentialStamina"),
+                             "min_percent": summary.get("minAvailableStamina")}),
+        "respiration_bpm": _compact({"avg": _round(summary.get("avgRespirationRate")), "min": _round(summary.get("minRespirationRate")),
+                                     "max": _round(summary.get("maxRespirationRate"))}),
+        "elevation": _compact({"gain_m": _round(summary.get("elevationGain")), "loss_m": _round(summary.get("elevationLoss")),
+                               "min_m": _round(summary.get("minElevation")), "max_m": _round(summary.get("maxElevation")),
+                               "avg_m": _round(summary.get("avgElevation"))}),
+        "estimated_sweat_loss_ml": summary.get("waterEstimated"),
+        "active_calories": round(calories - bmr) if calories is not None and bmr is not None else None,
+        "paused_seconds": round(elapsed - moving, 1) if elapsed is not None and moving is not None and elapsed - moving > 0 else None,
+        "intensity_minutes_total": (moderate or 0) + 2 * (vigorous or 0) if moderate is not None or vigorous is not None else None,
+        "aerobic_training_effect_message": summary.get("aerobicTrainingEffectMessage"),
+        "anaerobic_training_effect_message": summary.get("anaerobicTrainingEffectMessage"),
+        "run_walk_stand_seconds": _compact({"running": seconds.get("RWD_RUN"), "walking": seconds.get("RWD_WALK"),
+                                            "standing": seconds.get("RWD_STAND")}),
+        "split_summaries": summaries or None,
+    }
+
+
+def strength_totals(exercise_sets) -> Optional[dict]:
+    """What the app shows for a strength session, computed from the ACTIVE sets (the summary's own totalExerciseReps and totalSets
+    differ from the app: seen live 373 reps and 124 sets against the app's 415 and 62): sets, reps, total volume in kg
+    (reps x weight; Garmin gives weights in grams), average seconds per set, and the REST sets between them."""
+    rows = (exercise_sets or {}).get("exerciseSets") or []
+    active = [r for r in rows if r.get("setType") == "ACTIVE"]
+    if not active:
+        return None
+    rest = [r for r in rows if r.get("setType") == "REST"]
+    return {
+        "sets": len(active),
+        "reps": sum(r.get("repetitionCount") or 0 for r in active),
+        "volume_kg": round(sum((r.get("repetitionCount") or 0) * (r.get("weight") or 0) for r in active) / 1000, 1),
+        "avg_seconds_per_set": round(sum(r.get("duration") or 0 for r in active) / len(active)),
+        "rest_sets": len(rest),
+        "rest_between_sets_seconds": round(sum(r.get("duration") or 0 for r in rest)),
+    }
+
+
 def configure(client):
     """Configure the module with the Garmin client instance"""
     global garmin_client
@@ -130,6 +192,12 @@ def register_tools(app):
     async def get_activity(activity_id: int) -> str:
         """Get basic activity information
 
+        Also returns, when present: moving and grade-adjusted speed, vertical ratio, stamina (start, end, minimum), respiration
+        (avg/min/max), elevation (gain, loss, min, max), estimated sweat loss, active calories, paused time, total intensity
+        minutes (moderate + 2 x vigorous), Garmin's training effect messages, run/walk/stand seconds and the split summaries
+        (warm-up, active, recovery), and for strength sessions strength_totals (sets, reps, volume in kg, average seconds
+        per set, rest between sets) computed from the active sets like the app does.
+
         Running dynamics (when the watch recorded them): average ground contact time, vertical oscillation, stride length
         and cadence, and ground_contact_balance, the share of the ground contact time on the left and the right foot in
         percent (Garmin's raw field groundContactBalanceLeft is the LEFT share; right = 100 - left).
@@ -212,6 +280,15 @@ def register_tools(app):
                 "device_manufacturer": metadata.get('manufacturer'),
             }
 
+            curated.update(extra_summary_fields(summary, activity.get('splitSummaries')))
+            if activity_type.get('typeKey') == 'strength_training':
+                try:
+                    totals = strength_totals(garmin_client.get_activity_exercise_sets(activity_id))
+                except Exception:
+                    totals = None  # the totals are a bonus; the rest of the activity is still returned
+                if totals:
+                    curated["strength_totals"] = totals
+
             # Remove None values
             curated = {k: v for k, v in curated.items() if v is not None}
 
@@ -260,6 +337,18 @@ def register_tools(app):
                     "intensity_type": lap.get('intensityType'),
                     "elevation_gain_meters": lap.get('elevationGain'),
                     "elevation_loss_meters": lap.get('elevationLoss'),
+                    "moving_duration_seconds": _round(lap.get('movingDuration')),
+                    "avg_moving_speed_mps": _round(lap.get('averageMovingSpeed'), 3),
+                    "avg_grade_adjusted_speed_mps": _round(lap.get('avgGradeAdjustedSpeed'), 3),
+                    "max_cadence": lap.get('maxRunCadence'),
+                    "avg_ground_contact_time_ms": _round(lap.get('groundContactTime')),
+                    "avg_vertical_oscillation_cm": _round(lap.get('verticalOscillation')),
+                    "avg_stride_length_cm": _round(lap.get('strideLength')),
+                    "vertical_ratio_percent": _round(lap.get('verticalRatio')),
+                    "avg_respiration_bpm": _round(lap.get('avgRespirationRate')),
+                    "max_respiration_bpm": _round(lap.get('maxRespirationRate')),
+                    "min_elevation_m": _round(lap.get('minElevation')),
+                    "max_elevation_m": _round(lap.get('maxElevation')),
                 }
                 # Remove None values
                 lap_data = {k: v for k, v in lap_data.items() if v is not None}
