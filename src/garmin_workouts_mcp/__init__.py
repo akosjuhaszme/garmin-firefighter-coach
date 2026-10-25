@@ -30,6 +30,7 @@ from garmin_workouts_mcp import weather
 from garmin_workouts_mcp import routes
 from garmin_workouts_mcp import tracking
 from garmin_workouts_mcp import body_composition
+from garmin_workouts_mcp import blood_pressure
 from garmin_workouts_mcp import strength
 from garmin_workouts_mcp import prompts
 
@@ -324,6 +325,7 @@ def main():
     routes.configure(garmin_client)
     tracking.configure(garmin_client)
     body_composition.configure(garmin_client)
+    blood_pressure.configure(garmin_client)
     strength.configure(garmin_client)
 
     # Create the MCP app
@@ -352,6 +354,7 @@ def main():
     app = routes.register_tools(app)
     app = tracking.register_tools(app)
     app = body_composition.register_tools(app)
+    app = blood_pressure.register_tools(app)
     app = strength.register_tools(app)
 
     # Register the ready-made coaching prompts (first-run setup, weekly review, ...)
