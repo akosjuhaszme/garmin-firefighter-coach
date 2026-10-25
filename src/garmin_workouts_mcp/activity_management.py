@@ -9,6 +9,14 @@ from typing import Any, Dict, List, Optional, Union
 garmin_client = None
 
 
+def ground_contact_balance(left):
+    """Garmin's groundContactBalanceLeft is the share of the ground contact time spent on the LEFT foot, in percent
+    (52.0 means 52 % left and 48 % right). Returns the left and right percent with the raw field name, or None."""
+    if left is None:
+        return None
+    return {"left_percent": round(left, 1), "right_percent": round(100 - left, 1), "raw_field": "groundContactBalanceLeft"}
+
+
 def configure(client):
     """Configure the module with the Garmin client instance"""
     global garmin_client
@@ -122,6 +130,10 @@ def register_tools(app):
     async def get_activity(activity_id: int) -> str:
         """Get basic activity information
 
+        Running dynamics (when the watch recorded them): average ground contact time, vertical oscillation, stride length
+        and cadence, and ground_contact_balance, the share of the ground contact time on the left and the right foot in
+        percent (Garmin's raw field groundContactBalanceLeft is the LEFT share; right = 100 - left).
+
         Args:
             activity_id: ID of the activity to retrieve
         """
@@ -168,6 +180,7 @@ def register_tools(app):
                 "avg_stride_length_cm": summary.get('strideLength'),
                 "avg_ground_contact_time_ms": summary.get('groundContactTime'),
                 "avg_vertical_oscillation_cm": summary.get('verticalOscillation'),
+                "ground_contact_balance": ground_contact_balance(summary.get('groundContactBalanceLeft')),
                 "steps": summary.get('steps'),
 
                 # Power
@@ -210,6 +223,9 @@ def register_tools(app):
     async def get_activity_splits(activity_id: int) -> str:
         """Get splits for an activity
 
+        Per lap, when the watch recorded running dynamics: ground_contact_balance (left and right share of the ground
+        contact time in percent; Garmin's raw field is groundContactBalanceLeft, the LEFT share).
+
         Args:
             activity_id: ID of the activity to retrieve splits for
         """
@@ -239,6 +255,7 @@ def register_tools(app):
                     "max_hr_bpm": lap.get('maxHR'),
                     "calories": lap.get('calories'),
                     "avg_cadence": lap.get('averageRunCadence'),
+                    "ground_contact_balance": ground_contact_balance(lap.get('groundContactBalanceLeft')),
                     "avg_power_watts": lap.get('averagePower'),
                     "intensity_type": lap.get('intensityType'),
                     "elevation_gain_meters": lap.get('elevationGain'),
