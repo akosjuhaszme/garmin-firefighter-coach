@@ -42,7 +42,14 @@ You are setting up a personal training and recovery coach for this user. Work th
 
 1. Connections. Call get_athlete_profile and get_daily_summary. If a 'mfp-readonly' server is connected, also call fitness_get_day. Tell me what works and what is missing, for example: consumed_kcal empty (a food diary is not linked to Garmin), no recent weigh-ins, a MyFitnessPal session notice, an expired login.
 2. What Garmin already knows. Summarise the last 8 weeks: get_activities_by_date, weekly distance and sessions, get_personal_records, get_race_predictions, get_training_status, resting heart rate, HRV and sleep (get_wellness_trend), weight trend (get_body_weight), and any races on the calendar (get_calendar_events).
-3. What Garmin cannot know. Ask me only these, all at once: my goal and target date, how many days a week I can train and which days are fixed or off, equipment available, injuries or limitations, work or shift constraints, and anything I never want in a plan.
+3. Intake questions: what Garmin cannot know. Ask in short groups, not one long list, and ask only what is not already answered in my private notes, in the Garmin data or earlier in this conversation; never ask the same thing twice. First: my goal and target date, how many days a week I can train and which days are fixed or off, equipment available, and anything I never want in a plan. Then one group at a time:
+   a. Feet and insoles: flat feet, high arches or uneven wear; insoles prescribed by a podiatrist, what they are for, whether I use them in every running shoe, and when they were last renewed.
+   b. Shoes: how many pairs, the mileage of each (get_gear), drop and cushioning, my body weight, earlier injuries of the leg area they load, and when I plan to replace them.
+   c. Food: lactose or gluten intolerance, allergies, vegetarian or other diets, and national or local dishes I do not want suggested. Keep these in every nutrition idea you give.
+   d. Injuries and complaints: past injuries (where, when, how long, how they were treated), current complaints, and any compression sleeve or other aid I use and why (comfort or a complaint).
+   e. Recovery habits: cold water, foam roller or other self-massage, flossing, yoga or mobility work, so you do not recommend what I already do and fit it into the plan.
+   f. Work and data: my shift pattern, the data sources I use (food diary, blood pressure monitor, type of scale), supplements and medicines, and other measuring devices.
+   Keep the answers in my PRIVATE notes only, never in a public repository.
 4. Optional fitness assessment. Ask me in one line: "Do you want to assess your physical fitness against one of the built-in rulebooks (Hungarian firefighter entry test, USA CPAT, UK Chester test, German, Czech, Polish or Dutch tests, or a home hybrid test)?" If yes, tell me to run the fitness_assessment_menu prompt next; if I have a test date coming up, prepare_for_fitness_test. Both can be run at any time later, not only now. If no, carry on.
 5. Save the context. Propose a short personal-context note (goals, constraints, conventions) and where to keep it. Recommend a private place and warn me not to put it in a public repository.
 6. First week. Propose one week as a table (day, session, purpose, intensity as heart-rate zones). Do not upload or schedule anything until I confirm.
@@ -54,6 +61,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `plan_training_week`
@@ -78,6 +86,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `weekly_review`
@@ -101,6 +110,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `recovery_check`
@@ -123,6 +133,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `nutrition_check`
@@ -145,6 +156,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `race_prep`
@@ -170,6 +182,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `progression_rules`
@@ -192,6 +205,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `strength_session`
@@ -214,6 +228,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `weak_points`
@@ -236,6 +251,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `firefighter_fitness_test_hu`
@@ -405,6 +421,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `fitness_assessment_menu`
@@ -446,6 +463,7 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```
 
 ## `prepare_for_fitness_test`
@@ -479,4 +497,5 @@ Ground rules:
 - If a companion 'mfp-readonly' server (fitness_* tools) is connected, use it for meals and macros. Never question or change the user's own calorie or macro targets unless they ask.
 - Reply in the language the user writes in. Keep answers short and concrete.
 - Personal context (injuries, schedule, goals) belongs in the user's own private notes, never in a public repository.
+- Respect the dietary restrictions, intolerances, allergies and food exclusions from the user's private notes in every nutrition suggestion.
 ```

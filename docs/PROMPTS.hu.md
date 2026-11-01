@@ -15,7 +15,7 @@ beépítve; az asszisztens a te nyelveden válaszol. Itt bemásolható magyar sz
 2. Indítsd újra a klienst, hogy az eszközök és a promptok betöltődjenek.
 3. Futtasd az **`első indítás`** promptot (lent). Ellenőrzi a kapcsolatokat, elolvassa az
    előzményeidet, és csak azt kérdezi meg, amit a Garmin nem tudhat (cél, szabad napok, felszerelés,
-   sérülések, kötöttségek), majd javasol egy első hetet. A jóváhagyásod előtt semmi nem kerül a Garminba.
+   láb és talpbetét, cipők, étrendi korlátok, sérülések, regenerációs szokások, műszak és adatforrások), rövid csoportokban és soha nem kétszer, majd javasol egy első hetet. A jóváhagyásod előtt semmi nem kerül a Garminba.
 4. Amit rólad megtanul, azt **privát** helyen tárold, soha ne nyilvános tárolóban.
 
 Heti ritmus: a hét utolsó napján heti értékelés, utána a következő hét megtervezése. Reggel,
@@ -31,6 +31,7 @@ A fizikai felmérő és a felkészülés a következő tesztre bármikor indíth
 - Ha csatlakoztatva van az `mfp-readonly` szerver (`fitness_*` eszközök), az étkezésekhez és makrókhoz azt használd. A saját kalória- és makrócéljaimat ne kérdőjelezd meg és ne változtasd, hacsak nem kérem.
 - Azon a nyelven válaszolj, amelyen írok. Legyél rövid és konkrét.
 - A személyes háttér (sérülések, időbeosztás, célok) a saját privát jegyzeteimbe tartozik, soha nem nyilvános tárolóba.
+- A privát jegyzeteimben szereplő étrendi korlátokat, intoleranciákat, allergiákat és kizárt ételeket minden táplálkozási javaslatnál tartsd be.
 
 ## Első indítás
 
@@ -39,7 +40,14 @@ Személyes edzői és regenerációs rendszert állítasz be nekem. Menj végig 
 
 1. Kapcsolatok. Hívd a get_athlete_profile és a get_daily_summary eszközt. Ha csatlakoztatva van az mfp-readonly, a fitness_get_day-t is. Mondd meg, mi működik és mi hiányzik (pl. üres consumed_kcal, mert nincs étkezésnapló a Garminhoz kötve, nincs friss mérés, lejárt bejelentkezés).
 2. Amit a Garmin már tud. Foglald össze az elmúlt 8 hetet: get_activities_by_date, heti kilométer és edzésszám, get_personal_records, get_race_predictions, get_training_status, nyugalmi pulzus, HRV és alvás (get_wellness_trend), a súly trendje (get_body_weight), és a naptárban lévő versenyek (get_calendar_events).
-3. Amit a Garmin nem tudhat. Egyszerre kérdezd meg: a célomat és a dátumát, heti hány napon edzhetek és melyek a fix vagy szabad napok, milyen felszerelésem van, sérüléseim és korlátaim, munka- vagy műszakbeosztás, és mi az, amit soha nem szeretnék a tervben.
+3. Bevezető kérdések: amit a Garmin nem tudhat. Rövid csoportokban kérdezz, ne egy hosszú listában, és csak azt, amire a privát jegyzeteimben, a Garmin-adatokban vagy a beszélgetés korábbi részében még nincs válasz; ugyanazt soha ne kérdezd kétszer. Először: a célomat és a dátumát, heti hány napon edzhetek és melyek a fix vagy szabad napok, milyen felszerelésem van, és mi az, amit soha nem szeretnék a tervben. Utána csoportonként:
+   a. Láb és talpbetét: lúdtalp, magas boltozat vagy külső kopás; podológus által felírt talpbetét, mi a célja, minden futócipőben használom-e, és mikor cserélték utoljára.
+   b. Cipők: hány pár van, mindegyik km-állása (get_gear), a drop és a párnázás, a testsúlyom, az általuk terhelt lábszakasz korábbi sérülései, és mikorra tervezem a cserét.
+   c. Étkezés: laktóz- vagy gluténérzékenység, allergia, vegetáriánus vagy más étrend, és a nemzeti vagy helyi ételek, amelyeket nem kérek. Ezt minden táplálkozási ötletnél tartsd be.
+   d. Sérülések és panaszok: korábbi sérülések (hol, mikor, mennyi ideig, hogyan kezelték), jelenlegi panaszok, kompressziós szár vagy más segédeszköz és az oka (komfort vagy panasz).
+   e. Regenerációs szokások: hideg víz, henger vagy más önmasszázs, flossing, jóga vagy mobilitás, hogy ne ajánlj olyat, ami már megvan, és illeszd az edzéstervbe.
+   f. Munka és adatok: a műszakbeosztásom, a használt adatforrások (étkezésnapló, vérnyomásmérő, a mérleg típusa), kiegészítők és gyógyszerek, egyéb mérőeszközök.
+   A válaszokat csak a PRIVÁT jegyzeteimben tárold, soha nem nyilvános tárolóban.
 4. Fizikai állapotfelmérés (opcionális). Kérdezd meg egy sorban: "Szeretnéd felmérni a fizikai állapotodat valamelyik beépített szabályzat alapján (magyar tűzoltó-alkalmasság, USA CPAT, brit Chester-teszt, német, cseh, lengyel, holland teszt, vagy otthoni hibrid felmérő)?" Ha igen, kérj, hogy futtassam a fitness_assessment_menu promptot; ha közeleg egy teszt időpontja, a prepare_for_fitness_test promptot. Mindkettő később, bármikor futtatható, nem csak most. Ha nem, folytasd.
 5. A háttér elmentése. Javasolj egy rövid személyes háttérjegyzetet (célok, kötöttségek, szokások) és hol tároljam. Privát helyet javasolj, és figyelmeztess, hogy ne kerüljön nyilvános tárolóba.
 6. Az első hét. Javasolj egy hetet táblázatban (nap, edzés, cél, intenzitás pulzuszónában). Amíg nem hagyom jóvá, semmit ne tölts fel és ne ütemezz.
