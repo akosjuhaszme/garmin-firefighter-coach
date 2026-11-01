@@ -401,6 +401,10 @@ If you encounter login issues:
 2. Check if Garmin Connect requires additional verification
 3. Ensure the garminconnect package is up to date
 
+## Before publishing: the pre-push check
+
+`scripts/prepush_scan.py` is a git pre-push hook that looks at what a push would publish (the added lines of every commit and the commit messages) and stops the push when something matches a personal-data or secret pattern. Built-in patterns cover API keys, tokens, private key blocks, e-mail addresses and session cookies. Personal patterns (a surname, a user name, a device number) live in a file of your own outside every repository, by default `~/.garmin-coach/scan_patterns.txt` (or the file named by `GARMIN_COACH_SCAN_PATTERNS`): one regular expression per line, either `label: regex` or just the regex. The report names the pattern and the file and hides the matching text. Install it with `python scripts/prepush_scan.py --install [REPO ...]`; `git push --no-verify` skips it on purpose. It found a real user name in its own first test file before that file was ever pushed.
+
 ## Testing
 
 This project includes comprehensive tests for all MCP tools. **All tests are currently passing (100%)**.
