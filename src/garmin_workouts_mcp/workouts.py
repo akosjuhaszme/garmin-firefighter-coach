@@ -1,8 +1,10 @@
 """
 Workout-related functions for Garmin Connect MCP Server
 """
+import copy
 import json
 import datetime
+import pathlib
 from typing import Any, Dict, List, Optional, Union
 
 from garth.exc import GarthHTTPError
@@ -44,6 +46,93 @@ def _fix_hr_zone_steps(workout_data: dict) -> None:
     for segment in workout_data.get('workoutSegments', []):
         for step in segment.get('workoutSteps', []):
             _fix_hr_zone_step(step)
+
+
+_WORKOUT_BACKUP_DIR = pathlib.Path.home() / ".garmin-coach" / "backups"
+_STEP_CHANGE_KEYS = ("reps", "end_condition_value", "description", "weight_kg", "repeat_count")
+_MAX_STEP_DESCRIPTION = 512
+
+
+def _walk_workout_steps(steps):
+    for step in steps or []:
+        yield step
+        yield from _walk_workout_steps(step.get("workoutSteps"))
+
+
+def _step_view(step: dict) -> dict:
+    """A step reduced to what a person would call its content (used to compare a workout before and after an edit)"""
+    return {
+        "order": step.get("stepOrder"),
+        "type": (step.get("stepType") or {}).get("stepTypeKey"),
+        "iterations": step.get("numberOfIterations"),
+        "end_condition": (step.get("endCondition") or {}).get("conditionTypeKey"),
+        "end_condition_value": step.get("endConditionValue"),
+        "category": step.get("category"),
+        "exercise": step.get("exerciseName"),
+        "weight": step.get("weightValue"),
+        "description": step.get("description"),
+    }
+
+
+def workout_fingerprint(workout: dict) -> list:
+    return [_step_view(step) for segment in workout.get("workoutSegments") or [] for step in _walk_workout_steps(segment.get("workoutSteps"))]
+
+
+def _positive_number(value, name: str, high: float):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not (0 < value <= high):
+        raise ValueError(f"{name} must be a number above 0 and at most {high}, got {value!r}")
+    return float(value)
+
+
+def plan_step_change(workout: dict, step_order: int, changes: dict, workout_description_replace: Optional[dict] = None) -> dict:
+    """A copy of the workout with ONE step changed (and optionally one phrase of the workout description replaced).
+    Raises ValueError with the reason when the change does not fit the step."""
+    unknown = sorted(set(changes) - set(_STEP_CHANGE_KEYS))
+    if unknown:
+        raise ValueError(f"unknown change {unknown}; the allowed ones are {list(_STEP_CHANGE_KEYS)}")
+    if not changes and not workout_description_replace:
+        raise ValueError("nothing to change")
+    new = copy.deepcopy(workout)
+    matches = [step for segment in new.get("workoutSegments") or [] for step in _walk_workout_steps(segment.get("workoutSteps"))
+               if step.get("stepOrder") == step_order]
+    if len(matches) != 1:
+        raise ValueError(f"expected exactly one step with order {step_order}, found {len(matches)}")
+    step = matches[0]
+    is_group = step.get("type") == "RepeatGroupDTO" or bool(step.get("workoutSteps"))
+    condition = (step.get("endCondition") or {}).get("conditionTypeKey")
+
+    if "repeat_count" in changes:
+        if not is_group:
+            raise ValueError("repeat_count belongs to a repeat group, this step is not one")
+        count = _positive_number(changes["repeat_count"], "repeat_count", 50)
+        if count != int(count):
+            raise ValueError("repeat_count must be a whole number")
+        step["numberOfIterations"] = int(count)
+        step["endConditionValue"] = float(count)  # a group keeps its count twice
+    if "reps" in changes:
+        if is_group or condition != "reps":
+            raise ValueError(f"reps is for a step that ends after a number of repetitions, this step ends with {condition!r}")
+        step["endConditionValue"] = _positive_number(changes["reps"], "reps", 1000)
+    if "end_condition_value" in changes:
+        if is_group or condition not in ("reps", "time", "distance"):
+            raise ValueError(f"end_condition_value is for a step that ends by reps, time or distance, this one ends with {condition!r}")
+        step["endConditionValue"] = _positive_number(changes["end_condition_value"], "end_condition_value", 100000)
+    if "description" in changes:
+        text = changes["description"]
+        if not isinstance(text, str) or len(text) > _MAX_STEP_DESCRIPTION:
+            raise ValueError(f"description must be text of at most {_MAX_STEP_DESCRIPTION} characters")
+        step["description"] = text
+    if "weight_kg" in changes:
+        if is_group or not step.get("weightUnit") or not (step.get("category") or step.get("weightValue")):
+            raise ValueError("weight_kg is for a strength step that already has an exercise and a weight unit")
+        step["weightValue"] = _positive_number(changes["weight_kg"], "weight_kg", 500)
+    if workout_description_replace:
+        old, replacement = workout_description_replace.get("old"), workout_description_replace.get("new")
+        text = new.get("description") or ""
+        if not isinstance(old, str) or not isinstance(replacement, str) or not old or text.count(old) != 1:
+            raise ValueError("workout_description_replace needs 'old' text that appears exactly once in the workout description, and 'new' text")
+        new["description"] = text.replace(old, replacement, 1)
+    return new
 
 
 def _curate_workout_summary(workout: dict) -> dict:
@@ -594,6 +683,67 @@ def register_tools(app):
             return f"Update failed: HTTP {response.status_code} - {response.text[:300]}"
         except Exception as e:
             return f"Error updating workout: {str(e)}"
+
+    @app.tool()
+    async def update_workout_step(workout_id: int, step_order: int, changes: dict, workout_description_replace: Optional[dict] = None,
+                                  confirm: bool = False) -> str:
+        """Change ONE step of an existing workout and nothing else (preview first, then confirm)
+
+        WRITES to the user's real Garmin account when confirm=true: only after the user saw the preview and agreed.
+        Without confirm=true nothing is written and the exact differences are returned. With confirm=true a backup of
+        the whole workout is saved to ~/.garmin-coach/backups, the workout is sent back with only that step changed, read
+        again, and every step is compared with the plan; if anything else differs the saved original is put back.
+
+        Use get_workout_by_id to find the step's `order` (steps inside repeat groups have their own order numbers).
+        For alternating exercises such as lunges the watch counts one repetition per left-right pair, so `reps` is
+        the number per leg.
+
+        Args:
+            workout_id: Numeric id of the workout (get_workouts)
+            step_order: The step's `order` number from get_workout_by_id
+            changes: Any of {"reps": 6} (steps that end after repetitions), {"end_condition_value": 90} (reps, seconds or
+                meters, by the step's end condition), {"description": "text"} (up to 512 characters), {"weight_kg": 22.5}
+                (strength steps that already have a weight), {"repeat_count": 3} (when the step is a repeat group)
+            workout_description_replace: Optional {"old": "kilépés 3x12", "new": "kitörés 3x6"}: replaces one phrase
+                that appears exactly once in the workout's description, to keep the text in line with the step
+            confirm: True only after the user agreed to this exact change
+        """
+        try:
+            workout = garmin_client.get_workout_by_id(int(workout_id))
+            if not workout:
+                return f"No workout found with ID {workout_id}."
+            try:
+                planned = plan_step_change(workout, step_order, changes, workout_description_replace)
+            except ValueError as e:
+                return f"Refusing: {e}"
+            before, after = workout_fingerprint(workout), workout_fingerprint(planned)
+            differences = [{"order": b["order"], "before": b, "after": a} for b, a in zip(before, after) if b != a]
+            description_change = None
+            if workout.get("description") != planned.get("description"):
+                description_change = {"before": workout.get("description"), "after": planned.get("description")}
+            preview = {"workout": workout.get("workoutName"), "steps_compared": len(before), "steps_that_change": differences,
+                       "workout_description": description_change}
+            if not confirm:
+                return json.dumps({"status": "confirmation_required", **preview,
+                                   "message": "Nothing was written. Show this to the user and call again with confirm=true after the user agreed."},
+                                  indent=2, ensure_ascii=False)
+
+            _WORKOUT_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+            backup = _WORKOUT_BACKUP_DIR / f"workout-{workout_id}-{datetime.datetime.now():%Y%m%d-%H%M%S}.json"
+            backup.write_text(json.dumps(workout, ensure_ascii=False, indent=1), encoding="utf-8")
+            url = f"workout-service/workout/{int(workout_id)}"
+            response = garmin_client.garth.put("connectapi", url, json=planned, api=True)
+            if response.status_code not in (200, 204):
+                return json.dumps({"status": "failed", "http_status": response.status_code, "message": "Garmin refused the change; nothing was changed.",
+                                   "backup": str(backup)}, indent=2)
+            back = garmin_client.get_workout_by_id(int(workout_id))
+            if workout_fingerprint(back) == after and back.get("description") == planned.get("description"):
+                return json.dumps({"status": "success", **preview, "read_back_matches_plan": True, "backup": str(backup)}, indent=2, ensure_ascii=False)
+            restore = garmin_client.garth.put("connectapi", url, json=workout, api=True)
+            return json.dumps({"status": "failed_restored", "message": "The read-back differed from the plan, the saved original was put back.",
+                               "restore_http_status": restore.status_code, "backup": str(backup)}, indent=2)
+        except Exception as e:
+            return f"Error updating the workout step: {str(e)}"
 
     @app.tool()
     async def delete_workouts(workout_ids: list[int]) -> str:
