@@ -52,3 +52,15 @@ Each item says where it belongs: **(Garmin)** this server, **(MFP)** the read-on
 
 ### Process (Garmin)
 - A request that writes into the user's account and arrives from another session is shown to the user with the exact plan and answered in the user's own chat before anything is written; read-only checks and local files need no question. The plan includes the backup path and the exact differences.
+
+### Body composition uploads: never guess the time (Garmin)
+- The time of a measurement is not guessed: a photo of a scale carries no EXIF timestamp and the upload time is not the measurement time (this was guessed wrongly twice on the coach side and corrected by the user). Take the time from another entry of the same morning (a blood pressure reading, for example) or ask. An entry uploaded with a wrong time is deleted (`delete_body_weight_entry` needs the entry's `sample_pk` and its `date`) and uploaded again with the right time.
+
+### A food diary next to Garmin (both)
+- With fixed daily calorie goals in a consumer food diary, switch the diary's "add exercise calories" off, otherwise the burned calories are counted twice (the watch already counts them). Water in the diary can be read only as a daily total (`water_ml`) and does not sync into Garmin's hydration.
+
+### Training with a load (coaching)
+- A progression rule for weighted sessions (a loaded pack or frame, +2 to +4 kg from week to week): step up only when the effort of the previous session was at most 6 to 7 out of 10 and there was no knee, hip or back pain the next day. In a workout use lap-button steps for the climb and a fixed time for the descent.
+
+### Prehab as its own short workout (Garmin)
+- A small repeating prehab routine is better kept as its own short workout than as extra steps in the strength workout. Exercises without a good catalog category (banded external rotation, for example) are free-text steps; the single-leg calf raise can use the `CALF_RAISE` category.
