@@ -38,3 +38,17 @@ Each item says where it belongs: **(Garmin)** this server, **(MFP)** the read-on
 
 ### Publishing (Garmin)
 - To clean personal details out of commits that are already public, rewrite the history locally (`git filter-branch`, with a backup branch), check with `git log -S`, and push with `--force-with-lease`; an automated session may be blocked from the force push, then the owner runs the command himself. Old commit addresses can stay reachable on GitHub for a while.
+
+## Week of 26 October - 1 November 2026
+
+### Editing a workout step (Garmin)
+- In a strength workout every exercise sits in a repeat group (`RepeatGroupDTO`, `numberOfIterations`) whose `workoutSteps` hold the work step (end condition `reps`, `category` and `exerciseName`, `weightValue` with `weightUnit`, a free-text `description`) and a recovery step. The curated workout view showed only the group header, so the exercises, reps and weights were invisible; the raw `get_workout_by_id` answer has them.
+- A safe single-step edit: GET the raw workout, save a backup, change only the fields wanted, PUT the whole workout to `workout-service/workout/{id}` (204), read it back and compare every step (order, type, iterations, end condition, exercise, weight, description) with the plan. A script that stops when the workout changed since it was prepared prevents overwriting someone else's edit.
+- **Alternating exercises are counted in pairs:** the watch records one repetition per left-right pair (an alternating lunge shows 12 for 12 per leg), so the rep value of such a step is the per-leg number. Check it against the recorded sets (`get_activity_exercise_sets`) before changing a number.
+- The `description` text is free text and appears as written; the built-in exercise name comes from Garmin's list and is shown in the watch's own language.
+
+### Calories: Garmin and MyFitnessPal (both)
+- With the link on, Garmin's `consumed_kcal` equals the MyFitnessPal day total as soon as something is logged, and `intake_source_connected` turns true. Garmin's "remaining" calories are the base goal plus active calories minus consumed, which is a different budget from MyFitnessPal's goal when its "Exercise Calories" setting is off; compare the two sources by their totals, not by their "remaining" values.
+
+### Process (Garmin)
+- A request that writes into the user's account and arrives from another session is shown to the user with the exact plan and answered in the user's own chat before anything is written; read-only checks and local files need no question. The plan includes the backup path and the exact differences.
