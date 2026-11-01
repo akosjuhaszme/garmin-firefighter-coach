@@ -74,26 +74,37 @@ def _curate_workout_summary(workout: dict) -> dict:
 
 
 def _curate_workout_step(step: dict) -> dict:
-    """Extract essential workout step information"""
-    step_type = step.get('stepType', {})
-    end_condition = step.get('endCondition', {})
-    target_type = step.get('targetType', {})
+    """Extract essential workout step information
+
+    Repeat groups keep their steps (the exercises of a strength workout sit inside them) and strength steps show the
+    exercise and the weight; both were missing from the curated view before.
+    """
+    step_type = step.get('stepType') or {}
+    end_condition = step.get('endCondition') or {}
+    target_type = step.get('targetType') or {}
 
     curated = {
         "order": step.get('stepOrder'),
-        "type": step_type.get('stepTypeKey'),  # warmup, interval, cooldown, rest, recover
+        "type": step_type.get('stepTypeKey'),  # warmup, interval, cooldown, rest, recover, repeat
     }
 
     # Description
     if step.get('description'):
         curated['description'] = step.get('description')
 
-    # End condition (duration/distance/lap press)
+    # End condition (duration/distance/lap press/reps)
     if end_condition.get('conditionTypeKey'):
         curated['end_condition'] = end_condition.get('conditionTypeKey')
     if step.get('endConditionValue'):
-        # Value meaning depends on condition type (seconds for time, meters for distance)
+        # Value meaning depends on condition type (seconds for time, meters for distance, repetitions for reps)
         curated['end_condition_value'] = step.get('endConditionValue')
+
+    # Strength steps: which exercise, with how much weight
+    exercise = {k: v for k, v in (("category", step.get('category')), ("name", step.get('exerciseName'))) if v}
+    if exercise:
+        curated['exercise'] = exercise
+    if step.get('weightValue'):
+        curated['weight'] = {"value": step.get('weightValue'), "unit": (step.get('weightUnit') or {}).get('unitKey')}
 
     # Target (heart rate, pace, power, etc.)
     target_key = target_type.get('workoutTargetTypeKey')
@@ -106,9 +117,12 @@ def _curate_workout_step(step: dict) -> dict:
         if step.get('zoneNumber'):
             curated['target_zone'] = step.get('zoneNumber')
 
-    # Repeat info for repeat steps
-    if step.get('type') == 'RepeatGroupDTO':
+    # Repeat groups: the count and the steps inside
+    inner = step.get('workoutSteps')
+    if step.get('type') == 'RepeatGroupDTO' or inner:
         curated['repeat_count'] = step.get('numberOfIterations')
+        if inner:
+            curated['steps'] = [_curate_workout_step(s) for s in inner]
 
     return {k: v for k, v in curated.items() if v is not None}
 
