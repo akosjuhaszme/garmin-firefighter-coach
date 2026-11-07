@@ -34,6 +34,8 @@ from . import routes
 garmin_client = None
 
 OSM_FOOT_URL = "https://routing.openstreetmap.de/routed-foot/route/v1/foot/"
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+OSM_WAY_URL = "https://api.openstreetmap.org/api/0.6/way/"
 _HEADERS = {"User-Agent": "garmin-firefighter-coach-route-composer/1.0"}
 _COARSE_LAYERS = {"locality", "localadmin", "county", "macrocounty", "region", "macroregion", "country", "coarse", "borough", "neighbourhood"}
 _UNPAVED_SURFACES = {2, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18}  # OpenRouteService surface codes: unpaved, gravel, dirt, ground, ice, sand, ...
@@ -383,6 +385,73 @@ def _is_coarse(geo: dict) -> bool:
     return confidence is not None and confidence < 0.5
 
 
+def _nominatim(text: str):
+    """OpenStreetMap's own search for a free-text place -> (hit dict, None) or (None, why); the public instance asks for at most one
+    request a second and a client name, and this is called once per saved place"""
+    try:
+        response = requests.get(NOMINATIM_URL, params={"q": text, "format": "jsonv2", "limit": 1, "addressdetails": 0}, headers=_HEADERS, timeout=15)
+    except requests.exceptions.RequestException as exc:
+        return None, f"Error contacting OpenStreetMap search: {exc}"
+    if response.status_code != 200:
+        return None, f"OpenStreetMap search answered HTTP {response.status_code}"
+    results = response.json()
+    if not results:
+        return None, f"OpenStreetMap search found nothing for {text!r}"
+    hit = results[0]
+    return {"lat": float(hit["lat"]), "lon": float(hit["lon"]), "label": hit.get("display_name"), "osm": f"{hit.get('osm_type')}/{hit.get('osm_id')}",
+            "category": hit.get("category") or hit.get("class"), "type": hit.get("type")}, None
+
+
+def _street_geocode(text: str):
+    """A street-level coordinate for free text: OpenRouteService first (when a key is set), then OpenStreetMap's own search. Only a match
+    on a street counts; a town or district centre never does -> (place dict, None) or (None, what was tried)"""
+    tried = []
+    key = os.environ.get("OPENROUTESERVICE_API_KEY")
+    if key:
+        geo, error = routes._geocode(key, text)
+        if geo and not _is_coarse(geo):
+            return {"lat": round(geo["lat"], 6), "lon": round(geo["lon"], 6), "source": "geocoded", "match_type": geo.get("match_type"),
+                    "confidence": geo.get("confidence")}, None
+        tried.append({"service": "openrouteservice", "result": error or {k: geo.get(k) for k in ("label", "layer", "match_type", "confidence")}})
+    hit, error = _nominatim(text)
+    if hit and hit["category"] == "highway":
+        return {"lat": round(hit["lat"], 6), "lon": round(hit["lon"], 6), "source": "osm_search", "osm": hit["osm"]}, None
+    tried.append({"service": "openstreetmap search", "result": error or {k: hit.get(k) for k in ("label", "category", "type")}})
+    return None, tried
+
+
+def _osm_ways(spec: str):
+    """The middle of one or more OpenStreetMap ways (ids like 'w100200300' or '100200300,400500600'), from the exact street geometry of the OSM
+    API -> (place dict, None) or (None, error). The middle is half the total length along the ways in the order given."""
+    ids = [re.sub(r"^[wW]", "", part) for part in re.split(r"[,\s;]+", spec.strip()) if part]
+    if not ids or len(ids) > 10 or not all(i.isdigit() for i in ids):
+        return None, "osm_way must be one to ten OpenStreetMap way ids like 'w100200300' or '100200300,400500600'"
+    lines = []
+    for way_id in ids:
+        try:
+            response = requests.get(f"{OSM_WAY_URL}{way_id}/full.json", headers=_HEADERS, timeout=20)
+        except requests.exceptions.RequestException as exc:
+            return None, f"Error contacting the OpenStreetMap API: {exc}"
+        if response.status_code != 200:
+            return None, f"The OpenStreetMap API answered HTTP {response.status_code} for way {way_id}"
+        elements = response.json().get("elements", [])
+        nodes = {e["id"]: (e["lat"], e["lon"]) for e in elements if e.get("type") == "node" and "lat" in e and "lon" in e}
+        way = next((e for e in elements if e.get("type") == "way"), None)
+        line = [nodes[n] for n in (way or {}).get("nodes", []) if n in nodes]
+        if len(line) >= 2:
+            lines.append(line)
+    if not lines:
+        return None, "No usable geometry in those ways"
+    lengths = [_polyline_km(line) * 1000 for line in lines]
+    half = sum(lengths) / 2
+    for line, length in zip(lines, lengths):
+        if half <= length:
+            lat, lon = _point_along(line, half)
+            break
+        half -= length
+    return {"lat": round(lat, 6), "lon": round(lon, 6), "source": "osm_way", "osm_ways": [f"w{i}" for i in ids], "length_m": round(sum(lengths))}, None
+
+
 def _file_stem(name: str) -> str:
     return re.sub(r"[^\w\- ]", "", name, flags=re.UNICODE).strip().replace(" ", "_")[:60] or "route"
 
@@ -391,18 +460,23 @@ def register_tools(app):
     """Register the known-route tools with the MCP server app"""
 
     @app.tool()
-    async def save_known_place(name: str, lat: Optional[float] = None, lon: Optional[float] = None, address: str = "", notes: str = "") -> str:
+    async def save_known_place(name: str, lat: Optional[float] = None, lon: Optional[float] = None, address: str = "", osm_way: str = "",
+                               notes: str = "") -> str:
         """Remember a street or point (with its coordinate) for compose_route - local file only
 
-        Give lat and lon to PIN the place by hand (what to do when the geocoder cannot find the street), or leave them out and it is
-        looked up with the OpenRouteService geocoder from `address` (default: the name). A match that only resolved to a town or
-        district centre, or has low confidence, is NOT saved: the answer says so and asks for a pin. Saving an existing name updates it.
+        Three ways to give the coordinate, in this order of preference: (1) osm_way: OpenStreetMap way ids of the street (e.g.
+        "w100200300,w400500600", from https://www.openstreetmap.org or a street list); the middle of the street is taken from its exact
+        geometry, (2) lat and lon: a PIN by hand, (3) neither: looked up from `address` (default: the name), first with the
+        OpenRouteService geocoder (when a key is set), then with OpenStreetMap's own search. Only a match ON A STREET is saved: a
+        town or district centre, a low-confidence match or a non-street object is refused and the answer lists what was tried and asks
+        for a pin or osm_way. Saving an existing name updates it.
 
         Args:
             name: Name of the place, e.g. "Alpha utca" (case and accents do not matter when it is used later)
             lat: Latitude for a manual pin
             lon: Longitude for a manual pin
-            address: Text for the geocoder, e.g. "Alpha utca, Exampletown, Hungary" (only used when no lat/lon is given)
+            address: Text for the geocoders, e.g. "Alpha utca, Exampletown, Hungary" (only used when no pin or osm_way is given)
+            osm_way: One to ten OpenStreetMap way ids of the street ("w100200300" or "100200300,400500600")
             notes: Free text: surface, lighting, "can be run along its whole length", ...
         """
         try:
@@ -410,22 +484,21 @@ def register_tools(app):
             existing = _find(data["places"], name)
             if (lat is None) != (lon is None):
                 return "Give both lat and lon for a pin, or neither."
+            if osm_way and lat is not None:
+                return "Give either a pin (lat and lon) or osm_way, not both."
             if lat is not None:
                 if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                     return "lat/lon out of range."
                 place = {"lat": round(lat, 6), "lon": round(lon, 6), "source": "pin"}
-            else:
-                api_key = os.environ.get("OPENROUTESERVICE_API_KEY")
-                if not api_key:
-                    return "No OPENROUTESERVICE_API_KEY configured: pass lat and lon to pin the place by hand."
-                geo, error = routes._geocode(api_key, address or name)
+            elif osm_way:
+                place, error = _osm_ways(osm_way)
                 if error:
                     return error
-                if _is_coarse(geo):
-                    return json.dumps({"saved": False, "reason": "the geocoder only found a coarse match (a town or district centre or low confidence), "
-                                       "not the street itself: save it again with lat and lon (a manual pin)", "geocoded": geo}, ensure_ascii=False, indent=2)
-                place = {"lat": round(geo["lat"], 6), "lon": round(geo["lon"], 6), "source": "geocoded",
-                         "match_type": geo.get("match_type"), "confidence": geo.get("confidence")}
+            else:
+                place, tried = _street_geocode(address or name)
+                if place is None:
+                    return json.dumps({"saved": False, "reason": "no match ON A STREET (only a town or district centre, a low-confidence match or a non-street "
+                                       "object): save it again with lat and lon (a manual pin) or with osm_way", "tried": tried}, ensure_ascii=False, indent=2)
             if notes:
                 place["notes"] = notes
             elif existing and "notes" in data["places"][existing]:

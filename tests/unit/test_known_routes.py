@@ -119,12 +119,14 @@ async def test_geocoder_match_is_saved_but_a_town_centre_is_not(app, monkeypatch
         "Buda utca, Exampletown": {"lat": 47.1, "lon": 19.1, "label": "Exampletown", "confidence": 0.3, "match_type": "fallback", "layer": "locality"},
     }
     monkeypatch.setattr(known_routes.routes, "_geocode", lambda key, text: (answers[text], None))
+    monkeypatch.setattr(known_routes, "_nominatim", lambda text: (None, "OpenStreetMap search found nothing"))
 
     ok = await call(app, "save_known_place", {"name": "Alpha utca", "address": "Alpha utca, Exampletown"})
     assert ok["saved"] and ok["source"] == "geocoded" and ok["match_type"] == "exact"
 
     coarse = await call(app, "save_known_place", {"name": "Buda utca", "address": "Buda utca, Exampletown"})
-    assert coarse["saved"] is False and "pin" in coarse["reason"]
+    assert coarse["saved"] is False and "pin" in coarse["reason"] and "osm_way" in coarse["reason"]
+    assert [t["service"] for t in coarse["tried"]] == ["openrouteservice", "openstreetmap search"]
     assert list((await call(app, "list_known_routes"))["places"]) == ["Alpha utca"]
 
     pinned = await call(app, "save_known_place", {"name": "Buda utca", "lat": 47.002, "lon": 19.003, "notes": "pinned by hand"})
@@ -151,6 +153,93 @@ async def test_a_damaged_store_is_reported_and_left_alone(app, data_dir):
     assert "not valid JSON" in await call(app, "list_known_routes")
     assert "not valid JSON" in await call(app, "save_known_place", {"name": "A", "lat": 1.0, "lon": 1.0})
     assert (data_dir / "known_routes.json").read_text(encoding="utf-8") == "{not json"
+
+
+# ------------------------------------------------------------------------------------- street-level fallbacks (OSM search, OSM ways)
+
+def nominatim_hit(category="highway", **extra):
+    return {"lat": 47.0, "lon": 19.003, "label": "Buda utca, Exampletown", "osm": "way/100200300", "category": category, "type": "residential", **extra}
+
+
+@pytest.mark.asyncio
+async def test_osm_search_is_the_fallback_when_the_first_geocoder_only_finds_the_town(app, monkeypatch):
+    monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "key")
+    monkeypatch.setattr(known_routes.routes, "_geocode", lambda key, text: ({"lat": 47.1, "lon": 19.1, "label": "Exampletown", "confidence": 0.3,
+                                                                              "match_type": "fallback", "layer": "locality"}, None))
+    monkeypatch.setattr(known_routes, "_nominatim", lambda text: (nominatim_hit(), None))
+
+    saved = await call(app, "save_known_place", {"name": "Buda utca", "address": "Buda utca, Exampletown"})
+    assert saved["saved"] and saved["source"] == "osm_search" and saved["osm"] == "way/100200300" and saved["lon"] == 19.003
+
+
+@pytest.mark.asyncio
+async def test_osm_search_works_without_any_key_but_a_non_street_hit_is_refused(app, monkeypatch):
+    hits = {"Buda utca": (nominatim_hit(), None), "Exampletown": (nominatim_hit(category="boundary", type="administrative"), None)}
+    monkeypatch.setattr(known_routes, "_nominatim", lambda text: hits[text])
+
+    assert (await call(app, "save_known_place", {"name": "Buda utca"}))["source"] == "osm_search"
+    refused = await call(app, "save_known_place", {"name": "Exampletown"})
+    assert refused["saved"] is False and refused["tried"][-1]["result"]["category"] == "boundary"
+    assert list((await call(app, "list_known_routes"))["places"]) == ["Buda utca"]
+
+
+def test_the_osm_search_asks_politely_and_reads_the_answer(monkeypatch):
+    seen = {}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        seen.update(url=url, params=params, headers=headers)
+        return FakeResponse([{"lat": "47.0", "lon": "19.003", "display_name": "Buda utca", "osm_type": "way", "osm_id": 100200300, "category": "highway", "type": "residential"}])
+
+    monkeypatch.setattr(known_routes.requests, "get", fake_get)
+    hit, error = known_routes._nominatim("Buda utca, Exampletown")
+    assert error is None and hit["osm"] == "way/100200300" and hit["category"] == "highway" and hit["lat"] == 47.0
+    assert seen["params"]["q"] == "Buda utca, Exampletown" and seen["params"]["limit"] == 1 and seen["headers"] == known_routes._HEADERS
+
+    monkeypatch.setattr(known_routes.requests, "get", lambda *a, **k: FakeResponse([]))
+    assert "found nothing" in known_routes._nominatim("x")[1]
+    monkeypatch.setattr(known_routes.requests, "get", lambda *a, **k: FakeResponse(status_code=429))
+    assert "HTTP 429" in known_routes._nominatim("x")[1]
+
+
+def way_payload(*points):
+    """what the OpenStreetMap API returns for /way/<id>/full.json"""
+    nodes = [{"type": "node", "id": 1000 + i, "lat": lat, "lon": lon} for i, (lat, lon) in enumerate(points)]
+    return {"elements": nodes + [{"type": "way", "id": 1, "nodes": [n["id"] for n in nodes]}]}
+
+
+@pytest.mark.asyncio
+async def test_an_osm_way_gives_the_middle_of_the_street_and_several_ways_are_chained(app, monkeypatch):
+    ways = {"100200300": way_payload((47.000, 19.000), (47.000, 19.004), (47.000, 19.008)),  # 8 x 0.001 degrees of longitude, straight
+            "400500600": way_payload((47.000, 19.008), (47.000, 19.016))}
+    requested = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        requested.append(url)
+        way_id = url.split("/way/")[1].split("/")[0]
+        return FakeResponse(ways[way_id]) if way_id in ways else FakeResponse(status_code=404)
+
+    monkeypatch.setattr(known_routes.requests, "get", fake_get)
+
+    one = await call(app, "save_known_place", {"name": "Buda utca", "osm_way": "w100200300"})
+    assert one["saved"] and one["source"] == "osm_way" and one["osm_ways"] == ["w100200300"] and one["lat"] == 47.0
+    assert one["lon"] == pytest.approx(19.004, abs=0.0001) and 500 < one["length_m"] < 700
+
+    both = await call(app, "save_known_place", {"name": "Buda utca", "osm_way": "w100200300, 400500600"})
+    assert both["updated"] and both["osm_ways"] == ["w100200300", "w400500600"]
+    assert both["lon"] == pytest.approx(19.008, abs=0.0001)  # half of the chained length
+    assert all(url.endswith("/full.json") and url.startswith(known_routes.OSM_WAY_URL) for url in requested)
+
+
+@pytest.mark.asyncio
+async def test_bad_osm_way_input_is_refused_before_anything_is_saved(app, monkeypatch):
+    monkeypatch.setattr(known_routes.requests, "get", lambda *a, **k: FakeResponse(status_code=404))
+    assert "way ids" in await call(app, "save_known_place", {"name": "X", "osm_way": "not-an-id"})
+    assert "way ids" in await call(app, "save_known_place", {"name": "X", "osm_way": ",".join(["1"] * 11)})
+    assert "HTTP 404" in await call(app, "save_known_place", {"name": "X", "osm_way": "w123"})
+    assert "either a pin" in await call(app, "save_known_place", {"name": "X", "osm_way": "w123", "lat": 47.0, "lon": 19.0})
+    monkeypatch.setattr(known_routes.requests, "get", lambda *a, **k: FakeResponse({"elements": []}))
+    assert "No usable geometry" in await call(app, "save_known_place", {"name": "X", "osm_way": "w123"})
+    assert (await call(app, "list_known_routes"))["places"] == {}
 
 
 # -------------------------------------------------------------------------------------------------------------- compose
