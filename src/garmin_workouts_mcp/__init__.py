@@ -28,6 +28,7 @@ from garmin_workouts_mcp import daylight
 from garmin_workouts_mcp import watch_usb
 from garmin_workouts_mcp import weather
 from garmin_workouts_mcp import routes
+from garmin_workouts_mcp import known_routes
 from garmin_workouts_mcp import tracking
 from garmin_workouts_mcp import body_composition
 from garmin_workouts_mcp import blood_pressure
@@ -323,6 +324,7 @@ def main():
     pacepro.configure(garmin_client)
     watch_alarms.configure(garmin_client)
     routes.configure(garmin_client)
+    known_routes.configure(garmin_client)
     tracking.configure(garmin_client)
     body_composition.configure(garmin_client)
     blood_pressure.configure(garmin_client)
@@ -352,6 +354,7 @@ def main():
     app = watch_usb.register_tools(app)
     app = weather.register_tools(app)
     app = routes.register_tools(app)
+    app = known_routes.register_tools(app)
     app = tracking.register_tools(app)
     app = body_composition.register_tools(app)
     app = blood_pressure.register_tools(app)
