@@ -64,3 +64,42 @@ Each item says where it belongs: **(Garmin)** this server, **(MFP)** the read-on
 
 ### Prehab as its own short workout (Garmin)
 - A small repeating prehab routine is better kept as its own short workout than as extra steps in the strength workout. Exercises without a good catalog category (banded external rotation, for example) are free-text steps; the single-leg calf raise can use the `CALF_RAISE` category.
+
+## Weeks of 2-22 November 2026
+
+### The watch: library copies and dated copies (Garmin)
+- Over USB a workout reaches the watch in two forms. `GARMIN/Workouts/<name>_workout.fit` is the **library copy** and can go stale: after a workout is edited or renamed in Garmin Connect the library file may still hold the old steps or the old name. `GARMIN/Workouts/Schedule/<YYYY-MM-DD>` is the **dated copy** of a scheduled day, written at a phone sync and equal to Connect as of that sync. Two workouts on the same day share one dated file (the second replaces the first), and days further ahead may have no dated copy yet. Compare the steps of the dated copy with Connect, not the names.
+- `GARMIN/Schedule/Schedule.fit` lists every scheduled workout with a completed flag. The flag can lag behind Connect or fail to match when one workout id is scheduled on several days, although the activity itself is in Connect.
+- A FIT workout is message 26 and its steps are message 27 (duration type and value, target, intensity, free-text notes); `fit_light.py` reads them. USB never syncs with Connect, a phone sync does.
+- Windows lesson: Windows PowerShell 5.1 reads a script saved as UTF-8 without a BOM as ANSI, so a non-ASCII file name inside the script no longer matches (a name with an accented letter was not found). Match with an ASCII wildcard or save the script with a BOM.
+
+### Known routes (Garmin)
+- A random round-trip generator cannot reproduce the streets a runner really uses. `known_routes.py` keeps named places and loops locally and composes routes through them (see the README). What was learned while building it:
+- **Garmin keeps the GPS track of past runs.** `get_activity_details` returns a polyline (`geoPolylineDTO`, latitude and longitude every few seconds) and `download_activity` exports GPX with elevation. The curated MCP tools show only lap summaries.
+- **For small streets the geocoder finds only the settlement** (`match_type: fallback`, layer locality). Such a match is refused, not saved. OpenStreetMap's own search finds the street as a `highway` way; OSM way ids (lists of the streets of a town exist) plus `api.openstreetmap.org/api/0.6/way/<id>/full.json` give the exact geometry; a manual pin is the last resort.
+- **Routers:** the public OpenStreetMap foot router needs no key and gives no elevation; OpenRouteService gives ascent, descent and a surface summary (paved, unpaved, unknown). The shortest foot path between two street centres can leave the streets for a track or a path, so look at the unpaved share and at the map before a composed route is used.
+- **Learned loops:** two tracks are the same route when at least 80 % of the points of each lie within about 30 m of the other. Grouping the runs that start near one point this way found the recurring loops without any input from the user. To follow a learned loop with a router, route through its **turns** (the polyline simplified with Douglas-Peucker) plus a point on long straight stretches: waypoints at a fixed spacing cut the corners (a test rectangle came out a third too short).
+- **A route guessed from a list of street names was not the runner's real long run.** Compare a guessed route with the runner's own track before it is uploaded as a Garmin course.
+- The long-run limit (10 % more than the longest run of the last 30 days) is computed by `compose_route`, which also says whether the route is within it.
+- The public services get coordinates (and, for the geocoder, the street text) and a generic client name, nothing else, at a fair-use rate.
+
+### The MyFitnessPal session (MFP)
+- The pasted NextAuth session token stopped working after one to two days, not after thirty. The log showed that every failure came at the first call of a freshly started server process; the server also receives a `remember_me` cookie that authenticates on its own (tested with a corrupted token next to it) and keeps its value, and the cookies MyFitnessPal re-issued had been kept in memory only. They are now saved after every successful call. Details are in the README of the MFP server.
+- Method: when a login lasts shorter than documented, read the server's own log for WHEN the first failure appears and test which single cookie authenticates before building a workaround. The cookie values are never printed (names, lengths, expiry dates and booleans only).
+
+### Reading the data (coaching)
+- **Pace band or heart-rate zone:** in cold weather an HR-zone target makes the watch beep "too slow" at a normal effort and an ice-covered road wants a pace ceiling; a pace band centred on the runner's demonstrated easy pace, with heart rate as a check, worked better. "Tighter" means narrower around the real pace, not shifted slower; a band narrower than about 15 s beeps constantly on hills and ice.
+- **Left-right ground-contact balance** is not comparable between a flat run and a hill with a one-sided bend, and a wound or a pain on one side shifts it. Use flat runs for the trend and read it together with what is going on.
+- **Context before judging a run:** weather, a night on call before the run and the place in the activity name all change pace, heart rate and balance. Station sleep lowers the sleep score and HRV even without a callout; judge the next day on the next normal night.
+- **Heart rate in the first minutes of a run** can spike far above the rest of the run. Check the sensor (strap contact, optical cadence lock) before reading zone time, and keep the series for a doctor if it repeats.
+- **Zones from the watch's lactate-threshold estimate** can sit above what the runner's own threshold work shows; zone minutes alone do not say how hard a session was.
+- **Strength workouts:** few distinct rep numbers are easier to follow (10 and 15, plus a per-leg count for one-sided work); slow tempo for push-ups and calf raises; progress by variant (feet raised, added load) rather than by more reps. Phantom sets from rest-time movement still need filtering.
+- **Long-run progression:** the 10 % weekly rule is a convention, a literature check (abstract level) found no good evidence behind it; use it as a caution next to readiness and injury history, not as a hard limit.
+
+### Process (both)
+- Quote a figure with its period and date, and write a date and a source next to every fact in shared notes. Two sessions' notes drifted apart (a longest run quoted without a date, two versions of a progression rule, the order of a first session) and a third session found it; cross-check the notes from time to time. Never write a statement about a diagnosis or about what a doctor said without asking the person.
+- Check scientific references in a database (PubMed, Crossref) before they go into the docs or a tool description: one literature collection had four wrong entries (a DOI, an identifier attached to the wrong paper, a wrong description and a wrong device model).
+- The pre-push scan and a grep over the diff found real identifiers in the first draft of a test (OpenStreetMap way ids that point to the runner's street): use invented identifiers in tests and examples. An unpublished commit can be amended; a published one can only be cleaned with a force push.
+- Commits made by an AI session carry a `Co-Authored-By` trailer, so the log shows who did the work even when the git author is the account owner.
+- Idea, not built: a tool should say when there is no data for a day or a workout (a person may wear the watch only for runs), so the coach does not guess.
+- The rule stays: public text has no names, measurements, illness, workout dates or device numbers, and is scanned before every push.
